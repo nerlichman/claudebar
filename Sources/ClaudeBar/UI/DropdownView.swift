@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 
 struct DropdownView: View {
@@ -5,6 +6,7 @@ struct DropdownView: View {
     @State private var showDormant = false
     @State private var showEnded = false
     @State private var expandedSessions: Set<String> = []
+    @State private var launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
     @AppStorage("menuBarLabelStyle") private var labelStyleRaw = MenuBarLabelStyle.full.rawValue
 
     var body: some View {
@@ -64,6 +66,11 @@ struct DropdownView: View {
                 }
             }
 
+            // SMAppService needs a real bundle; hide under `swift run`.
+            if Bundle.main.bundleIdentifier != nil {
+                Toggle("Launch at login", isOn: launchAtLogin)
+            }
+
             Divider()
 
             switch appState.manualTokenState {
@@ -87,6 +94,31 @@ struct DropdownView: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .help("Settings")
+        .onAppear {
+            // Resync in case it was changed in System Settings > Login Items.
+            launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+        }
+    }
+
+    /// The login item points at whichever bundle is running, so toggle this
+    /// from the installed copy (~/Applications), not a build-dir run.
+    private var launchAtLogin: Binding<Bool> {
+        Binding(
+            get: { launchAtLoginEnabled },
+            set: { enable in
+                do {
+                    if enable {
+                        try SMAppService.mainApp.register()
+                    } else {
+                        try SMAppService.mainApp.unregister()
+                    }
+                    launchAtLoginEnabled = enable
+                } catch {
+                    Log.error("launch at login: \(error.localizedDescription)")
+                    launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+                }
+            }
+        )
     }
 
     private func sessionRow(_ session: Session) -> some View {

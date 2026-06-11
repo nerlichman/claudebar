@@ -1,10 +1,20 @@
 #!/bin/bash
-# Assembles build/ClaudeBar.app from the SwiftPM release build and ad-hoc signs it.
+# Assembles build/ClaudeBar.app from the SwiftPM release build and signs it.
+# Signing with a real Apple Development identity keeps the app's code-signing
+# identity stable across rebuilds (TCC/Keychain grants survive) and lets
+# UNUserNotificationCenter deliver native banners. Falls back to ad-hoc when
+# the identity isn't in the keychain. Override with CODESIGN_IDENTITY.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP=build/ClaudeBar.app
 BUNDLE_ID=dev.gogrow.claudebar
+IDENTITY="${CODESIGN_IDENTITY:-Apple Development: nicolaserlichman@gmail.com (V5A2LD3ZA4)}"
+
+if ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$IDENTITY"; then
+  echo "warning: identity '$IDENTITY' not found, ad-hoc signing instead" >&2
+  IDENTITY="-"
+fi
 
 swift build -c release
 
@@ -19,5 +29,5 @@ if [ ! -f Resources/AppIcon.icns ]; then
 fi
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
-codesign --force --sign - --identifier "$BUNDLE_ID" "$APP"
-echo "Built $APP"
+codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"
+echo "Built $APP (signed: $IDENTITY)"

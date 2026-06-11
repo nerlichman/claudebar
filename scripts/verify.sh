@@ -34,7 +34,15 @@ echo "== 1. Build & bundle"
 ./scripts/make-app.sh >/dev/null || { fail "build"; exit 1; }
 [ -x "$APP/Contents/MacOS/ClaudeBar" ] && pass "binary present" || fail "binary missing"
 codesign --verify "$APP" 2>/dev/null && pass "codesign verifies" || fail "codesign"
+# A real identity (TeamIdentifier set) is what keeps TCC grants stable and
+# native notifications working; ad-hoc still runs, so it's a warning.
+if codesign -dv "$APP" 2>&1 | grep -q "TeamIdentifier=[A-Z0-9]"; then
+    pass "signed with real identity"
+else
+    echo "  warn: ad-hoc signature (notifications fall back to osascript)"
+fi
 plutil -lint "$APP/Contents/Info.plist" >/dev/null && pass "Info.plist valid" || fail "Info.plist"
+[ -f "$APP/Contents/Resources/AppIcon.icns" ] && pass "app icon bundled" || fail "app icon missing"
 
 echo "== 2. Launch"
 pkill -x ClaudeBar 2>/dev/null
