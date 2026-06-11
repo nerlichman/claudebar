@@ -42,6 +42,7 @@ Requires Xcode command line tools (Swift 5.10+). No other dependencies.
 ```sh
 make run          # build, bundle, sign, launch from build/
 make install      # build + install to ~/Applications and launch
+make dmg          # build a shareable build/ClaudeBar.dmg
 make install-hook # (re)install the statusline capture hook
 make verify       # end-to-end smoke test
 make logs         # tail ~/Library/Logs/ClaudeBar/claudebar.log
@@ -62,6 +63,8 @@ The hook delegates to `~/.claude/statusline.sh` (your original statusline), so t
 ## Signing
 
 `scripts/make-app.sh` signs with an Apple Development certificate by default (override with `CODESIGN_IDENTITY=...`, falls back to ad-hoc if the identity isn't in the keychain). A real signature keeps the app's code-signing identity stable across rebuilds — TCC Automation grants and notification permission survive — and enables native `UNUserNotificationCenter` banners instead of the `osascript` fallback.
+
+**Sharing**: building from source (`make install`) is the smoothest path for anyone with Xcode command line tools. `make dmg` produces a drag-to-Applications image, but since the app isn't notarized (that requires the paid Apple Developer Program), recipients must approve it once via System Settings → Privacy & Security → "Open Anyway", and notifications fall back to `osascript` banners on machines without the signing cert.
 
 ## Notes
 
