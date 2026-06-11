@@ -271,6 +271,7 @@ final class AppState {
                 startedAt: lastActivity ?? now,
                 entrypoint: Entrypoint(rawValue: meta?.entrypoint),
                 title: endedTitleResolver.title(forSessionId: sessionId, transcriptURL: url),
+                desktopSessionId: endedTitleResolver.desktopSessionId(forSessionId: sessionId),
                 state: .ended,
                 lastTranscriptActivity: lastActivity,
                 lastInteraction: lastActivity,

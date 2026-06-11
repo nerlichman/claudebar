@@ -92,6 +92,9 @@ struct Session: Identifiable, Equatable {
     let entrypoint: Entrypoint
     /// Human-readable session title (desktop metadata or transcript slug).
     var title: String?
+    /// The desktop app's `local_…` session id, when it knows this session —
+    /// enables deep-linking to the exact session view on click.
+    var desktopSessionId: String?
     var state: ActivityState
     var lastTranscriptActivity: Date?
     /// Best-known moment of real engagement: hook event, transcript write,

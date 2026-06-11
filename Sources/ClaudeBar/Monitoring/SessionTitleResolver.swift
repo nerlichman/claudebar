@@ -1,28 +1,43 @@
 import Foundation
 
-/// Human-readable session titles. Primary source: the desktop app's session
-/// metadata (`local_*.json`, keyed by cliSessionId). Fallback: the `slug`
-/// field Claude Code writes into transcripts, de-kebabed.
+/// Human-readable session titles and desktop session ids. Primary source:
+/// the desktop app's session metadata (`local_*.json`, keyed by
+/// cliSessionId). Title fallback: the `slug` field Claude Code writes into
+/// transcripts, de-kebabed.
 final class SessionTitleResolver {
+    private struct DesktopMeta {
+        var title: String?
+        var localId: String?
+        var lastFocusedAt: Double
+    }
+
     private static let desktopSessionsDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Claude/claude-code-sessions", isDirectory: true)
 
     private let fm = FileManager.default
-    private var titlesByCliId: [String: String] = [:]
+    private var metaByCliId: [String: DesktopMeta] = [:]
     private var indexBuiltAt = Date.distantPast
     private var slugCache: [String: (value: String?, at: Date)] = [:]
 
     func title(forSessionId sessionId: String, transcriptURL: URL?) -> String? {
         rebuildIndexIfNeeded()
-        if let title = titlesByCliId[sessionId] { return title }
+        if let title = metaByCliId[sessionId]?.title { return title }
         return slug(forSessionId: sessionId, transcriptURL: transcriptURL)
+    }
+
+    /// The desktop app's `local_…` id for a CLI session, used to deep-link
+    /// straight to the session view. Nil for sessions the desktop app
+    /// doesn't know about (pure CLI / VS Code).
+    func desktopSessionId(forSessionId sessionId: String) -> String? {
+        rebuildIndexIfNeeded()
+        return metaByCliId[sessionId]?.localId
     }
 
     private func rebuildIndexIfNeeded() {
         guard Date().timeIntervalSince(indexBuiltAt) > 60 else { return }
         indexBuiltAt = Date()
 
-        var map: [String: String] = [:]
+        var map: [String: DesktopMeta] = [:]
         let cutoff = Date().addingTimeInterval(-7 * 24 * 3600)
         if let enumerator = fm.enumerator(
             at: Self.desktopSessionsDir,
@@ -36,13 +51,27 @@ final class SessionTitleResolver {
                 guard let mtime, mtime > cutoff else { continue }
                 guard let data = try? Data(contentsOf: url),
                       let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                      let cliId = json["cliSessionId"] as? String,
-                      let title = json["title"] as? String, !title.isEmpty
+                      let cliId = json["cliSessionId"] as? String
                 else { continue }
-                map[cliId] = title
+                let focusedAt = json["lastFocusedAt"] as? Double ?? 0
+                let isArchived = json["isArchived"] as? Bool ?? false
+                let title = (json["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                let localId = isArchived ? nil : json["sessionId"] as? String
+
+                // Duplicate cliSessionIds happen (e.g. a re-imported
+                // transcript) — keep the most recently focused entry.
+                var entry = map[cliId] ?? DesktopMeta(title: nil, localId: nil, lastFocusedAt: -1)
+                if focusedAt > entry.lastFocusedAt {
+                    entry.lastFocusedAt = focusedAt
+                    if let title { entry.title = title }
+                    if let localId { entry.localId = localId }
+                }
+                if entry.title == nil { entry.title = title }
+                if entry.localId == nil { entry.localId = localId }
+                map[cliId] = entry
             }
         }
-        titlesByCliId = map
+        metaByCliId = map
     }
 
     /// Last `"slug":"..."` in the transcript's tail, de-kebabed

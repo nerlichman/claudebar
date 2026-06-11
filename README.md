@@ -8,7 +8,7 @@ A native macOS menu bar app that tracks your Claude Code **usage windows** and *
 - **Dropdown**:
   - 5-hour and weekly usage windows with progress bars and reset countdowns.
   - Every running Claude Code session with its title, project name (worktrees displayed nicely), git branch, surface icon (terminal / desktop / VS Code), and live state — **Active** (generating), **Waiting** (blocked on a permission prompt or your input), or **Idle**.
-  - **Click a session to jump to it**: terminal sessions select the exact iTerm tab (matched by the claude process's controlling tty), desktop sessions activate the Claude app, VS Code sessions open the workspace window. The first terminal jump triggers a one-time Automation permission prompt.
+  - **Click a session to jump to it**: terminal sessions select the exact iTerm tab (matched by the claude process's controlling tty), desktop sessions deep-link to the exact session view (`claude://claude.ai/epitaxy/<id>`, falling back to activating the app), VS Code sessions open the workspace window. The first terminal jump triggers a one-time Automation permission prompt.
   - **Expandable rows**: each session shows its token count and API-equivalent cost inline; expanding reveals today vs lifetime breakdowns.
   - Sessions idle for 60+ minutes collapse into a **dormant** group; sessions that ended collapse into an **earlier today** group.
   - Today's token totals and the API-equivalent cost (informational for subscription plans).

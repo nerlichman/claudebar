@@ -9,7 +9,15 @@ enum SessionFocus {
         Log.info("focus: pid=\(session.pid) via \(session.entrypoint.displayName)")
         switch session.entrypoint {
         case .claudeDesktop:
-            activateApp(bundleIds: ["com.anthropic.claudefordesktop"], fallbackName: "Claude")
+            if let localId = session.desktopSessionId {
+                // /epitaxy/<local id> is the desktop app's session route
+                // (observed in Claude 1.11847.5). claude://resume?session=
+                // also exists but re-imports the transcript as a duplicate
+                // session, so navigate directly instead.
+                runDetached("/usr/bin/open", ["claude://claude.ai/epitaxy/\(localId)"])
+            } else {
+                activateApp(bundleIds: ["com.anthropic.claudefordesktop"], fallbackName: "Claude")
+            }
         case .claudeVscode:
             // Opening the workspace folder focuses (or restores) its window.
             runDetached("/usr/bin/open", ["-a", "Visual Studio Code", session.cwd])
