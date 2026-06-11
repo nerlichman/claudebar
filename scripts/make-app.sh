@@ -28,6 +28,9 @@ if [ ! -f Resources/AppIcon.icns ]; then
   iconutil -c icns build/AppIcon.iconset -o Resources/AppIcon.icns
 fi
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# Bundle the Claude Code hook scripts so the app can install them itself
+# (gear menu) — keeps a shared .dmg fully functional without the repo.
+cp scripts/statusline-hook.sh scripts/claudebar-hook.sh "$APP/Contents/Resources/"
 
 codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"
 echo "Built $APP (signed: $IDENTITY)"

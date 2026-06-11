@@ -7,7 +7,10 @@
 EVENT="${1:-unknown}"
 input=$(cat)
 
-sid=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
+# sed instead of jq so the hook works on machines without dev tools.
+sid=$(printf '%s' "$input" \
+  | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+  | head -1)
 [ -z "$sid" ] && exit 0
 
 dir="$HOME/Library/Application Support/ClaudeBar/events"

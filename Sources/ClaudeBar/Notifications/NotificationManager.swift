@@ -142,6 +142,11 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     }
 
     private func deliver(title: String, body: String) {
+        // Gear-menu kill switch; edge-detection state still advances above
+        // so re-enabling doesn't replay stale alerts.
+        guard UserDefaults.standard.object(forKey: "notificationsEnabled") as? Bool ?? true else {
+            return
+        }
         switch mode {
         case .pending:
             pendingPosts.append((title, body))

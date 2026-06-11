@@ -7,7 +7,9 @@ struct DropdownView: View {
     @State private var showEnded = false
     @State private var expandedSessions: Set<String> = []
     @State private var launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+    @State private var hooksInstalled = HookInstaller.isInstalled
     @AppStorage("menuBarLabelStyle") private var labelStyleRaw = MenuBarLabelStyle.full.rawValue
+    @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -66,9 +68,26 @@ struct DropdownView: View {
                 }
             }
 
+            Toggle("Notifications", isOn: $notificationsEnabled)
+
             // SMAppService needs a real bundle; hide under `swift run`.
             if Bundle.main.bundleIdentifier != nil {
                 Toggle("Launch at login", isOn: launchAtLogin)
+            }
+
+            Divider()
+
+            if hooksInstalled {
+                Text("Claude Code hooks: installed")
+            } else {
+                Button("Install Claude Code hooks") {
+                    do {
+                        try HookInstaller.install()
+                        hooksInstalled = true
+                    } catch {
+                        Log.error("hooks: install failed (\(error.localizedDescription))")
+                    }
+                }
             }
 
             Divider()
@@ -97,6 +116,7 @@ struct DropdownView: View {
         .onAppear {
             // Resync in case it was changed in System Settings > Login Items.
             launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+            hooksInstalled = HookInstaller.isInstalled
         }
     }
 

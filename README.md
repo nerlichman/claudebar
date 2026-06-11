@@ -12,7 +12,7 @@ A native macOS menu bar app that tracks your Claude Code **usage windows** and *
   - **Expandable rows**: each session shows its token count and API-equivalent cost inline; expanding reveals today vs lifetime breakdowns.
   - Sessions idle for 60+ minutes collapse into a **dormant** group; sessions that ended collapse into an **earlier today** group.
   - Today's token totals and the API-equivalent cost (informational for subscription plans).
-- **Notifications**: when a session starts waiting for your input, and when the 5-hour or weekly window crosses 75% / 90% (once per window). Native banners with the ClaudeBar name and icon when the app is signed with a real identity (see below), `osascript` banners otherwise.
+- **Notifications**: when a session starts waiting for your input, and when the 5-hour or weekly window crosses 75% / 90% (once per window). Native banners with the ClaudeBar name and icon when the app is signed with a real identity (see below), `osascript` banners otherwise. A gear-menu toggle turns them off entirely.
 
 ## How it works — no credentials, no network
 
@@ -49,7 +49,10 @@ make logs         # tail ~/Library/Logs/ClaudeBar/claudebar.log
 make stop         # quit the app
 ```
 
-The statusline hook is registered in `~/.claude/settings.json`:
+The Claude Code hooks (statusline capture + lifecycle events) can be installed two ways:
+
+- **From the app**: gear menu → **Install Claude Code hooks**. The scripts are bundled inside the .app, so this works from a shared .dmg without the repo. It backs up `~/.claude/settings.json` (`settings.json.claudebar-backup`) before registering, never removes existing entries, and preserves a pre-existing statusline command by delegating to it.
+- **From the repo**: `make install-hook` copies the scripts; add the registration to `~/.claude/settings.json` yourself:
 
 ```json
 "statusLine": {
@@ -58,13 +61,13 @@ The statusline hook is registered in `~/.claude/settings.json`:
 }
 ```
 
-The hook delegates to `~/.claude/statusline.sh` (your original statusline), so the terminal statusline looks exactly as before.
+Either way the hook delegates to your original statusline (captured command or `~/.claude/statusline.sh`), so the terminal statusline looks exactly as before. The scripts have no dependencies beyond stock macOS.
 
 ## Signing
 
 `scripts/make-app.sh` signs with an Apple Development certificate by default (override with `CODESIGN_IDENTITY=...`, falls back to ad-hoc if the identity isn't in the keychain). A real signature keeps the app's code-signing identity stable across rebuilds — TCC Automation grants and notification permission survive — and enables native `UNUserNotificationCenter` banners instead of the `osascript` fallback.
 
-**Sharing**: building from source (`make install`) is the smoothest path for anyone with Xcode command line tools. `make dmg` produces a drag-to-Applications image, but since the app isn't notarized (that requires the paid Apple Developer Program), recipients must approve it once via System Settings → Privacy & Security → "Open Anyway", and notifications fall back to `osascript` banners on machines without the signing cert.
+**Sharing**: `make dmg` produces a drag-to-Applications image that is fully self-contained — recipients install the Claude Code hooks from the gear menu, no repo needed. Since the app isn't notarized (that requires the paid Apple Developer Program), they must approve it once via System Settings → Privacy & Security → "Open Anyway", and notifications fall back to `osascript` banners on machines without the signing cert. Building from source (`make install`) avoids the Gatekeeper hoop for anyone with Xcode command line tools.
 
 ## Notes
 
