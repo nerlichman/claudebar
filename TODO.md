@@ -14,7 +14,7 @@
 
 5. **Usage history sparkline** — we now persist API readings; a small 24h/weekly chart in the dropdown would be cheap to add.
 6. **Burn-rate hint** — "at this pace you hit 100% in ~40m" next to the 5-hour gauge.
-7. **Watch the `/epitaxy/` session route across desktop app updates** — the deep link used for exact-session focus is an internal route (verified on Claude 1.11847.5); if it breaks, clicking falls back to just activating the app.
+7. **Watch the `/claude-code-desktop/` deep-link route across desktop app updates** — the route is whitelisted in the app's claude:// URL handler (verified on Claude 1.11847.5); if it breaks, clicking falls back to just activating the app.
 
 ## Done (2026-06-11)
 
@@ -22,4 +22,4 @@
 - Signed with Apple Development certificate (`CODESIGN_IDENTITY` override, ad-hoc fallback) — native notifications + stable TCC identity.
 - Launch-at-login toggle in the gear menu.
 - README + verify.sh updated (signing/icon checks added; all checks pass).
-- Desktop session deep link: clicking a desktop session now focuses the exact session via `claude://claude.ai/epitaxy/<local id>` (cliSessionId → local id mapped from the desktop app's session metadata).
+- Desktop session deep link: clicking a desktop session now focuses the exact session via `claude://claude.ai/claude-code-desktop/<local id>` (cliSessionId → local id mapped from the desktop app's session metadata).

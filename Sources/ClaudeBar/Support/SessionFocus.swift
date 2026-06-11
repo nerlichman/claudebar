@@ -10,11 +10,11 @@ enum SessionFocus {
         switch session.entrypoint {
         case .claudeDesktop:
             if let localId = session.desktopSessionId {
-                // /epitaxy/<local id> is the desktop app's session route
-                // (observed in Claude 1.11847.5). claude://resume?session=
-                // also exists but re-imports the transcript as a duplicate
-                // session, so navigate directly instead.
-                runDetached("/usr/bin/open", ["claude://claude.ai/epitaxy/\(localId)"])
+                // /claude-code-desktop/<local id> is a whitelisted deep-link
+                // route in the desktop app's URL handler (verified on Claude
+                // 1.11847.5). claude://resume?session= also exists but
+                // re-imports the transcript as a duplicate session.
+                runDetached("/usr/bin/open", ["claude://claude.ai/claude-code-desktop/\(localId)"])
             } else {
                 activateApp(bundleIds: ["com.anthropic.claudefordesktop"], fallbackName: "Claude")
             }
