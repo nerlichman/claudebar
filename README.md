@@ -12,7 +12,7 @@ A native macOS menu bar app that tracks your Claude Code **usage windows** and *
   - **Expandable rows**: each session shows its token count and API-equivalent cost inline; expanding reveals today vs lifetime breakdowns.
   - Sessions idle for 60+ minutes collapse into a **dormant** group; sessions that ended collapse into an **earlier today** group.
   - Today's token totals and the API-equivalent cost (informational for subscription plans).
-- **Notifications**: when a session starts waiting for your input, and when the 5-hour or weekly window crosses 75% / 90% (once per window). Native banners with the ClaudeBar name and icon when the app is signed with a real identity (see below), `osascript` banners otherwise. A gear-menu toggle turns them off entirely.
+- **Notifications**: when a session starts waiting for your input, and when the 5-hour or weekly window crosses 75% / 90% (once per window). Delivered as `osascript` banners (Script Editor icon) — native `UNUserNotificationCenter` banners require provisioned signing (Developer ID or an embedded provisioning profile; an Apple Development cert alone is not enough — verified empirically). The app auto-upgrades to native banners if it ever runs with such a signature. A gear-menu toggle turns notifications off entirely.
 
 ## How it works — no credentials, no network
 
@@ -65,7 +65,7 @@ Either way the hook delegates to your original statusline (captured command or `
 
 ## Signing
 
-`scripts/make-app.sh` signs with an Apple Development certificate by default (override with `CODESIGN_IDENTITY=...`, falls back to ad-hoc if the identity isn't in the keychain). A real signature keeps the app's code-signing identity stable across rebuilds — TCC Automation grants and notification permission survive — and enables native `UNUserNotificationCenter` banners instead of the `osascript` fallback.
+`scripts/make-app.sh` signs with an Apple Development certificate by default (override with `CODESIGN_IDENTITY=...`, falls back to ad-hoc if the identity isn't in the keychain). A real signature keeps the app's code-signing identity stable across rebuilds, so TCC Automation grants survive. It does **not** enable native notifications — that needs Developer ID signing (see Notifications above).
 
 **Sharing**: `make dmg` produces a drag-to-Applications image that is fully self-contained — recipients install the Claude Code hooks from the gear menu, no repo needed. Since the app isn't notarized (that requires the paid Apple Developer Program), they must approve it once via System Settings → Privacy & Security → "Open Anyway", and notifications fall back to `osascript` banners on machines without the signing cert. Building from source (`make install`) avoids the Gatekeeper hoop for anyone with Xcode command line tools.
 

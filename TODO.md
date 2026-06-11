@@ -12,6 +12,8 @@
 
 ## Watchlist / ideas
 
+0. **Developer ID signing + notarization (company account)** — one move fixes both remaining rough edges: teammates' Gatekeeper "Open Anyway" dance and native notifications (verified 2026-06-11 that an Apple Development cert cannot register with UNUserNotificationCenter — needs provisioned signing). Wire a `make release` target: sign with hardened runtime, `notarytool submit --wait`, staple, dmg.
+
 5. **Usage history sparkline** — we now persist API readings; a small 24h/weekly chart in the dropdown would be cheap to add.
 6. **Burn-rate hint** — "at this pace you hit 100% in ~40m" next to the 5-hour gauge.
 7. **Watch the `/claude-code-desktop/` deep-link route across desktop app updates** — the route is whitelisted in the app's claude:// URL handler (verified on Claude 1.11847.5); if it breaks, clicking falls back to just activating the app.
