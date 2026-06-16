@@ -316,7 +316,18 @@ final class AppState {
         // Freshest source wins: a statusline capture only replaces what we
         // have if it's newer (the API poll usually is).
         if let report = usageReader.read(), report.source.asOf > (usage?.source.asOf ?? .distantPast) {
-            usage = report
+            // Statusline carries only the 5h/weekly windows — never the credit
+            // balance or Sonnet window. With active terminals it's often the
+            // freshest source, so a blind replace would flicker those rows out
+            // every few seconds. Carry the last known values forward; a fresh
+            // API poll still overwrites them authoritatively (incl. clearing).
+            usage = UsageReport(
+                fiveHour: report.fiveHour,
+                sevenDay: report.sevenDay,
+                sevenDaySonnet: report.sevenDaySonnet ?? usage?.sevenDaySonnet,
+                credit: report.credit ?? usage?.credit,
+                source: report.source
+            )
             degradedReason = nil
             let five = report.fiveHour.map { "\(Int($0.utilization.rounded()))%" } ?? "n/a"
             let seven = report.sevenDay.map { "\(Int($0.utilization.rounded()))%" } ?? "n/a"

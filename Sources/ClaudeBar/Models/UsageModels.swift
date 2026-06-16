@@ -20,8 +20,34 @@ enum UsageSource: Equatable {
     }
 }
 
+/// Pay-as-you-go overage balance against a monthly cap, reported directly by
+/// the usage API (`extra_usage`). Unlike the per-session token estimate, this
+/// is the server's authoritative dollar figure — it already accounts for
+/// retried/interrupted requests that never reach a transcript.
+struct CreditBalance: Equatable {
+    let usedUSD: Double
+    let limitUSD: Double
+    /// 0–100, as reported by the endpoint (kept rather than recomputed so the
+    /// bar matches the desktop app exactly).
+    let utilization: Double
+}
+
 struct UsageReport: Equatable {
     let fiveHour: UsageWindow?
     let sevenDay: UsageWindow?
+    let sevenDaySonnet: UsageWindow?
+    let credit: CreditBalance?
     let source: UsageSource
+
+    // Defaults keep the credential-free statusline path and the cache loader
+    // working unchanged — only the OAuth fetcher populates the richer fields.
+    init(fiveHour: UsageWindow?, sevenDay: UsageWindow?,
+         sevenDaySonnet: UsageWindow? = nil, credit: CreditBalance? = nil,
+         source: UsageSource) {
+        self.fiveHour = fiveHour
+        self.sevenDay = sevenDay
+        self.sevenDaySonnet = sevenDaySonnet
+        self.credit = credit
+        self.source = source
+    }
 }
