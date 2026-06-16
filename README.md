@@ -2,6 +2,10 @@
 
 A native macOS menu bar app that tracks your Claude Code **usage windows** and **running sessions** across all surfaces — the desktop app, terminal (iTerm), and the VS Code extension.
 
+<p align="center">
+  <img src="assets/screenshot.png" alt="ClaudeBar dropdown showing usage windows and running sessions" width="420">
+</p>
+
 ## What it shows
 
 - **Menu bar**: your 5-hour window utilization (e.g. `42%`), with a ✋ icon when any session is waiting for your input and a ⚠️ icon above 90%. The label style is configurable (Icon + %, % only, Icon only) via the gear menu; compact styles expand back to the full label whenever something needs attention.
