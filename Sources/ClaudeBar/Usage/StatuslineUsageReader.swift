@@ -41,9 +41,14 @@ final class StatuslineUsageReader {
         let sevenDay = Self.window(limits["seven_day"])
         guard fiveHour != nil || sevenDay != nil else { return nil }
 
+        // Best-effort; statusline omits the sonnet window and credit balance,
+        // in which case these stay nil and the rows simply don't render.
+        let sonnet = Self.window(limits["seven_day_sonnet"])
+
         return UsageReport(
             fiveHour: fiveHour,
             sevenDay: sevenDay,
+            sevenDaySonnet: sonnet,
             source: .statusline(asOf: mtime)
         )
     }
@@ -61,6 +66,8 @@ final class StatuslineUsageReader {
         return UsageReport(
             fiveHour: norm(report.fiveHour),
             sevenDay: norm(report.sevenDay),
+            sevenDaySonnet: norm(report.sevenDaySonnet),
+            credit: report.credit,
             source: report.source
         )
     }

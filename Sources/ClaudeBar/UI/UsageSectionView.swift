@@ -21,6 +21,15 @@ struct UsageSectionView: View {
                         if let window = usage.sevenDay {
                             windowRow("Weekly", window, now: context.date)
                         }
+                        // Only shown once there's actual Sonnet usage — an
+                        // always-0% row is noise for Opus-only users.
+                        if let window = usage.sevenDaySonnet, window.utilization > 0 {
+                            windowRow("Weekly (Sonnet)", window, now: context.date)
+                        }
+                        // Authoritative dollar spend, straight from the server.
+                        if let credit = usage.credit {
+                            creditRow(credit)
+                        }
                     }
                 }
                 sourceFootnote(usage.source)
@@ -50,6 +59,23 @@ struct UsageSectionView: View {
                 }
             }
             ProgressView(value: min(window.utilization, 100), total: 100)
+                .controlSize(.small)
+                .tint(color)
+        }
+    }
+
+    private func creditRow(_ credit: CreditBalance) -> some View {
+        let color: Color = credit.utilization >= 90 ? .red
+            : credit.utilization >= 75 ? .orange : .accentColor
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("Usage credits").font(.callout)
+                Spacer()
+                Text("$\(credit.usedUSD, specifier: "%.2f") of $\(credit.limitUSD, specifier: "%.2f")")
+                    .font(.callout.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(credit.utilization >= 75 ? color : .primary)
+            }
+            ProgressView(value: min(credit.utilization, 100), total: 100)
                 .controlSize(.small)
                 .tint(color)
         }

@@ -61,11 +61,46 @@ actor OAuthUsageFetcher {
             return .failure(.schemaDrift)
         }
 
+        // Best-effort extras — absence never fails the fetch, so the 5h/weekly
+        // behavior is preserved if the schema ever drops these.
+        let sonnet = Self.window(json["seven_day_sonnet"])
+        let credit = Self.credit(json["extra_usage"])
+
         return .success(UsageReport(
             fiveHour: fiveHour,
             sevenDay: sevenDay,
+            sevenDaySonnet: sonnet,
+            credit: credit,
             source: .api(asOf: Date())
         ))
+    }
+
+    // Verified response shape (2026-06-12):
+    // "extra_usage": {"is_enabled": true, "monthly_limit": 1000,
+    //                 "used_credits": 529.0, "utilization": 52.9,
+    //                 "currency": "USD"}
+    // monthly_limit / used_credits are in cents. Only USD is rendered with a
+    // "$"; anything else (or a disabled balance) degrades to no credit row.
+    private static func credit(_ value: Any?) -> CreditBalance? {
+        guard let dict = value as? [String: Any] else { return nil }
+        if let enabled = dict["is_enabled"] as? Bool, !enabled { return nil }
+        if let currency = dict["currency"] as? String, currency != "USD" { return nil }
+
+        func num(_ any: Any?) -> Double? {
+            switch any {
+            case let d as Double: return d
+            case let i as Int: return Double(i)
+            default: return nil
+            }
+        }
+        guard let limitCents = num(dict["monthly_limit"]), limitCents > 0 else { return nil }
+        let usedCents = num(dict["used_credits"]) ?? 0
+        let utilization = num(dict["utilization"]) ?? (usedCents / limitCents * 100)
+        return CreditBalance(
+            usedUSD: usedCents / 100,
+            limitUSD: limitCents / 100,
+            utilization: utilization
+        )
     }
 
     // Verified response shape (2026-06-10):
@@ -115,6 +150,15 @@ enum UsageCache {
             dict["sevenPct"] = seven.utilization
             if let reset = seven.resetsAt { dict["sevenReset"] = reset.timeIntervalSince1970 }
         }
+        if let sonnet = report.sevenDaySonnet {
+            dict["sonnetPct"] = sonnet.utilization
+            if let reset = sonnet.resetsAt { dict["sonnetReset"] = reset.timeIntervalSince1970 }
+        }
+        if let credit = report.credit {
+            dict["creditUsed"] = credit.usedUSD
+            dict["creditLimit"] = credit.limitUSD
+            dict["creditUtil"] = credit.utilization
+        }
         UserDefaults.standard.set(dict, forKey: key)
     }
 
@@ -132,8 +176,17 @@ enum UsageCache {
         let five = window("fivePct", "fiveReset")
         let seven = window("sevenPct", "sevenReset")
         guard five != nil || seven != nil else { return nil }
+        let sonnet = window("sonnetPct", "sonnetReset")
+        var credit: CreditBalance?
+        if let limit = dict["creditLimit"], let used = dict["creditUsed"] {
+            credit = CreditBalance(
+                usedUSD: used, limitUSD: limit,
+                utilization: dict["creditUtil"] ?? (limit > 0 ? used / limit * 100 : 0)
+            )
+        }
         return UsageReport(
             fiveHour: five, sevenDay: seven,
+            sevenDaySonnet: sonnet, credit: credit,
             source: .api(asOf: Date(timeIntervalSince1970: asOf))
         )
     }
