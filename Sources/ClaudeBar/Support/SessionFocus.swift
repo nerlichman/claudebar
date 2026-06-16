@@ -15,9 +15,11 @@ enum SessionFocus {
                 // 1.11847.5). claude://resume?session= also exists but
                 // re-imports the transcript as a duplicate session.
                 runDetached("/usr/bin/open", ["claude://claude.ai/claude-code-desktop/\(localId)"])
-            } else {
-                activateApp(bundleIds: ["com.anthropic.claudefordesktop"], fallbackName: "Claude")
             }
+            // `open <url>` navigates the app but, when it's already running,
+            // often leaves it behind other windows. Explicitly raise it so a
+            // click always brings the session to the front.
+            activateApp(bundleIds: ["com.anthropic.claudefordesktop"], fallbackName: "Claude")
         case .claudeVscode:
             // Opening the workspace folder focuses (or restores) its window.
             runDetached("/usr/bin/open", ["-a", "Visual Studio Code", session.cwd])

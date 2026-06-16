@@ -46,11 +46,20 @@ final class SessionMonitor {
             let transcriptURL = transcriptIndex.url(for: file.sessionId, cwd: file.cwd)
             let lastActivity = transcriptURL.flatMap { transcriptIndex.lastActivity(of: $0) }
 
+            let isGenerating = lastActivity.map { now.timeIntervalSince($0) < Self.activeWindow } ?? false
+
             let state: ActivityState
             if file.status == "waiting" {
                 state = .waiting(reason: file.waitingFor ?? "input")
-            } else if let lastActivity, now.timeIntervalSince(lastActivity) < Self.activeWindow {
+            } else if isGenerating {
                 state = .active
+            } else if hookEvent?.name == "notification" {
+                // Desktop and VS Code don't write status:"waiting" into the
+                // session file — the Notification hook is the only signal that
+                // Claude is blocked on input (permission prompt or idle wait).
+                // A live notification stands until the next prompt/stop event
+                // overwrites it, so it survives even hours-long waits.
+                state = .waiting(reason: file.waitingFor ?? "input")
             } else {
                 state = .idle
             }
