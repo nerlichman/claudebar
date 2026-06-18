@@ -1,6 +1,12 @@
-# ClaudeBar
+<p align="center">
+  <img src="assets/app-icon.png" alt="ClaudeBar icon" width="128">
+</p>
 
-A native macOS menu bar app that tracks your Claude Code **usage windows** and **running sessions** across all surfaces — the desktop app, terminal (iTerm), and the VS Code extension.
+<h1 align="center">ClaudeBar</h1>
+
+<p align="center">
+  A native macOS menu bar app that tracks your Claude Code <strong>usage windows</strong> and <strong>running sessions</strong> across all surfaces — the desktop app, terminal (iTerm), and the VS Code extension.
+</p>
 
 <p align="center">
   <img src="assets/screenshot.png" alt="ClaudeBar dropdown showing usage windows and running sessions" width="420">

@@ -32,21 +32,33 @@ struct MenuBarLabel: View {
         switch appState.menuBarAttention || style == .full ? MenuBarLabelStyle.full : style {
         case .full:
             HStack(spacing: 3) {
-                Image(systemName: symbolName)
+                icon
                 Text(text)
             }
         case .percent:
             Text(text)
         case .icon:
-            Image(systemName: symbolName)
+            icon
         }
     }
 
-    private var symbolName: String {
+    /// Attention states fall back to SF Symbols; the resting state shows the
+    /// ClaudeBar brand mark (rendered as a template image so it tints with the
+    /// menu bar).
+    @ViewBuilder private var icon: some View {
+        if let attentionSymbol {
+            Image(systemName: attentionSymbol)
+        } else {
+            Image(nsImage: BrandMark.menuBarImage())
+                .renderingMode(.template)
+        }
+    }
+
+    private var attentionSymbol: String? {
         if appState.recentlyWaiting { return "exclamationmark.bubble.fill" }
         guard let fiveHour = appState.usage?.fiveHour else { return "questionmark.circle" }
         if fiveHour.utilization >= 90 { return "exclamationmark.triangle.fill" }
-        return "gauge.with.needle"
+        return nil
     }
 
     private var text: String {
