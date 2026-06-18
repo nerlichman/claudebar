@@ -13,6 +13,9 @@ final class AppState {
     var sessions: [Session] = []
     var usage: UsageReport?
     var dayStats: DayStats = .empty
+    /// Rolling last-7-days token/cost estimate from local transcripts. Same
+    /// source and pricing as `dayStats`, wider window — see refreshWeekStats().
+    var weekStats: DayStats = .empty
     /// Today's token/cost totals per sessionId — same date filter as
     /// dayStats, so visible rows sum (roughly) to the Today section.
     var sessionStats: [String: DayStats] = [:]
@@ -58,6 +61,7 @@ final class AppState {
     @ObservationIgnored private var trackedTranscripts: Set<URL> = []
     @ObservationIgnored private var dayStart = Calendar.current.startOfDay(for: Date())
     @ObservationIgnored private var lastTranscriptScan = Date.distantPast
+    @ObservationIgnored private var lastWeekScan = Date.distantPast
     @ObservationIgnored private var fastTimer: Timer?
     @ObservationIgnored private var sessionsWatcher: DirectoryWatcher?
     @ObservationIgnored private var usageWatcher: DirectoryWatcher?
@@ -103,6 +107,7 @@ final class AppState {
         refreshSessions()
         refreshUsage()
         refreshDayStats()
+        refreshWeekStats()
     }
 
     // MARK: - Manual token / OAuth usage polling
@@ -358,6 +363,44 @@ final class AppState {
         if line != lastDayStatsLog {
             Log.info(line)
             lastDayStatsLog = line
+        }
+    }
+
+    /// Current-calendar-week cost/token estimate from local transcripts.
+    /// Unlike the live, incrementally-tailed Today aggregate, this window has
+    /// a moving lower bound (old events fall out at the week boundary), which
+    /// an append-only tail can't express — so it's a full rescan, bounded to
+    /// files touched this week and throttled to a few minutes (timer: 2s).
+    func refreshWeekStats(force: Bool = false) {
+        let now = Date()
+        guard force || now.timeIntervalSince(lastWeekScan) > 180 else { return }
+        lastWeekScan = now
+
+        // Start of the current week, honoring the locale's first weekday
+        // (Mon/Sun) from System Settings; falls back to start of today.
+        let cutoff = Calendar.current.dateInterval(of: .weekOfYear, for: now)?.start ?? dayStart
+        // A throwaway parser: reads each file from offset 0 (full contents) and
+        // dedupes on message.id within this scan, without touching the shared
+        // tail parser's offsets that drive the live Today flow.
+        let parser = TranscriptTailParser()
+        var week = DayStats.empty
+        for url in transcriptsModified(since: cutoff) {
+            for event in parser.newEvents(in: url) where (event.timestamp ?? now) >= cutoff {
+                week.add(event)
+            }
+        }
+        weekStats = week
+        logWeekStats()
+    }
+
+    @ObservationIgnored private var lastWeekStatsLog = ""
+    private func logWeekStats() {
+        guard weekStats.messageCount > 0 else { return }
+        let line = "week: tokens=\(weekStats.totalTokens) messages=\(weekStats.messageCount)"
+            + String(format: " cost=$%.2f", weekStats.costUSD)
+        if line != lastWeekStatsLog {
+            Log.info(line)
+            lastWeekStatsLog = line
         }
     }
 

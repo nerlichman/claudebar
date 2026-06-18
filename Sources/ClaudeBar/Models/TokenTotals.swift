@@ -11,8 +11,18 @@ struct DayStats: Equatable {
 
     static let empty = DayStats()
 
+    /// All four token classes summed. Dominated by cache reads (the whole
+    /// context is re-read every turn), so it runs ~50× the new-content count —
+    /// useful for the cost estimate, misleading as a headline. Kept for logs.
     var totalTokens: Int {
         inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens
+    }
+
+    /// New content only — input + output, excluding cache reads/writes. This
+    /// is what Claude's own usage view headlines as "total tokens"; we display
+    /// it for the same reason and break cache out separately below.
+    var inputOutputTokens: Int {
+        inputTokens + outputTokens
     }
 
     mutating func add(_ event: UsageEvent) {

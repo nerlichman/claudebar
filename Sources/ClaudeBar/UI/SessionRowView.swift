@@ -68,7 +68,7 @@ struct SessionRowView: View {
             VStack(alignment: .trailing, spacing: 2) {
                 stateBadge
                 if let stats, stats.messageCount > 0 {
-                    Text("\(Formatters.tokenCount(stats.totalTokens)) · $\(stats.costUSD, specifier: "%.2f")")
+                    Text("\(Formatters.tokenCount(stats.inputOutputTokens)) · $\(stats.costUSD, specifier: "%.2f")")
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.tertiary)
                 }
@@ -80,10 +80,10 @@ struct SessionRowView: View {
     private var detailBlock: some View {
         VStack(alignment: .leading, spacing: 2) {
             if let stats, stats.messageCount > 0 {
-                detailLine("Today", "\(Formatters.tokenCount(stats.totalTokens)) tok · $\(String(format: "%.2f", stats.costUSD))")
+                detailLine("Today", "\(Formatters.tokenCount(stats.inputOutputTokens)) tok · $\(String(format: "%.2f", stats.costUSD))")
             }
             if let lifetimeStats, lifetimeStats.messageCount > 0 {
-                detailLine("Total", "\(Formatters.tokenCount(lifetimeStats.totalTokens)) tok · $\(String(format: "%.2f", lifetimeStats.costUSD))")
+                detailLine("Total", "\(Formatters.tokenCount(lifetimeStats.inputOutputTokens)) tok · $\(String(format: "%.2f", lifetimeStats.costUSD))")
                 detailLine("Tokens", "in \(Formatters.tokenCount(lifetimeStats.inputTokens))"
                     + " · out \(Formatters.tokenCount(lifetimeStats.outputTokens))"
                     + " · cache \(Formatters.tokenCount(lifetimeStats.cacheReadTokens))r"

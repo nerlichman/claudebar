@@ -1,18 +1,22 @@
 import SwiftUI
 
+/// A labeled token/cost summary for one time window (Today, This week, …).
+/// Cost is what the usage would bill at API prices — informational for
+/// subscription plans.
 struct TodayStatsView: View {
+    var title = "Today"
     let stats: DayStats
 
     var body: some View {
         if stats.messageCount > 0 {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Today")
+                Text(title)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .textCase(.uppercase)
 
                 HStack(alignment: .firstTextBaseline) {
-                    Text("\(Formatters.tokenCount(stats.totalTokens)) tokens")
+                    Text("\(Formatters.tokenCount(stats.inputOutputTokens)) tokens")
                         .font(.callout.weight(.semibold))
                     Spacer()
                     Text("\(stats.costIsApproximate ? "~" : "≈")$\(stats.costUSD, specifier: "%.2f")")

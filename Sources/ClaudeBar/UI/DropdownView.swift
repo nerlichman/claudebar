@@ -25,6 +25,12 @@ struct DropdownView: View {
 
             TodayStatsView(stats: appState.dayStats)
 
+            // Same local-log estimate, wider window. Only shown once it adds
+            // something beyond Today's figure.
+            if appState.weekStats.messageCount > appState.dayStats.messageCount {
+                TodayStatsView(title: "This week", stats: appState.weekStats)
+            }
+
             if let status = statusCaption {
                 Text(status)
                     .font(.caption2)
