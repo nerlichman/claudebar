@@ -51,6 +51,16 @@ final class SessionMonitor {
             let state: ActivityState
             if file.status == "waiting" {
                 state = .waiting(reason: file.waitingFor ?? "input")
+            } else if hookEvent?.name == "prompt" {
+                // The events store holds only the latest lifecycle event, so a
+                // "prompt" (UserPromptSubmit) with no following "stop" means the
+                // turn is still in flight — Claude is working. The transcript
+                // window alone misses this: long thinking, waiting for the first
+                // token, or a slow tool/bash call can go >activeWindow seconds
+                // without writing the transcript, which would flip a busy
+                // session to .idle. Stop fires reliably at the end of every turn
+                // and overwrites this to "stop", so the session settles to idle.
+                state = .active
             } else if isGenerating {
                 state = .active
             } else if hookEvent?.name == "notification" {

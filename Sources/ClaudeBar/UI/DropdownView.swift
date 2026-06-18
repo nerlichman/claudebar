@@ -10,6 +10,7 @@ struct DropdownView: View {
     @State private var hooksInstalled = HookInstaller.isInstalled
     @AppStorage("menuBarLabelStyle") private var labelStyleRaw = MenuBarLabelStyle.full.rawValue
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
+    @AppStorage("waitingNotificationsEnabled") private var waitingNotificationsEnabled = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -68,7 +69,11 @@ struct DropdownView: View {
                 }
             }
 
-            Toggle("Notifications", isOn: $notificationsEnabled)
+            Toggle("Usage notifications", isOn: $notificationsEnabled)
+
+            // Off by default — the desktop app and terminal already alert on
+            // these, and Claude re-enters waiting every turn.
+            Toggle("\"Waiting for you\" notifications", isOn: $waitingNotificationsEnabled)
 
             // SMAppService needs a real bundle; hide under `swift run`.
             if Bundle.main.bundleIdentifier != nil {

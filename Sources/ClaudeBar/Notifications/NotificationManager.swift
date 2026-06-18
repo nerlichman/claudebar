@@ -67,11 +67,17 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     // MARK: - Waiting-for-input
 
     private func evaluateWaiting(_ sessions: [Session]) {
+        // Off by default: the Claude desktop app and terminal (iTerm, etc.)
+        // already surface waiting/permission prompts, so re-posting here just
+        // floods — Claude re-enters .waiting at the end of every turn. Edge
+        // state below still advances regardless, so flipping this on never
+        // replays a backlog of stale waits.
+        let waitingEnabled = UserDefaults.standard.object(forKey: "waitingNotificationsEnabled") as? Bool ?? false
         var currentlyWaiting: Set<String> = []
         for session in sessions {
             guard case .waiting(let reason) = session.state else { continue }
             currentlyWaiting.insert(session.sessionId)
-            if !notifiedWaitingIds.contains(session.sessionId) {
+            if waitingEnabled, !notifiedWaitingIds.contains(session.sessionId) {
                 post(
                     title: "Claude is waiting for you",
                     body: "\(session.title ?? session.display.project) (\(session.entrypoint.displayName)) — \(reason)"
