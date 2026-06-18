@@ -18,9 +18,9 @@ A native macOS menu bar app that tracks your Claude Code **usage windows** and *
   - Today's token totals and the API-equivalent cost (informational for subscription plans).
 - **Notifications**: when a session starts waiting for your input, and when the 5-hour or weekly window crosses 75% / 90% (once per window). Delivered as `osascript` banners (Script Editor icon) — native `UNUserNotificationCenter` banners require provisioned signing (Developer ID or an embedded provisioning profile; an Apple Development cert alone is not enough — verified empirically). The app auto-upgrades to native banners if it ever runs with such a signature. A gear-menu toggle turns notifications off entirely.
 
-## How it works — no credentials, no network
+## How it works — local-first
 
-ClaudeBar reads only local files that Claude Code already writes:
+Everything except the usage windows comes from local files Claude Code already writes — no credentials, no network. The usage windows optionally call one Anthropic endpoint with a token you authorize (see [Authentication](#authentication--usage-data)).
 
 | Data | Source |
 |---|---|
@@ -28,16 +28,28 @@ ClaudeBar reads only local files that Claude Code already writes:
 | Working set vs dormant | Claude Code lifecycle hooks (`SessionStart`/`UserPromptSubmit`/`Stop`/`Notification`/`SessionEnd` → `claudebar-hook.sh` → `events/{session_id}.json`) plus transcript activity; idle sessions untouched for 60+ min collapse into a "dormant" group, and `SessionEnd` hides a session even if its process lingers |
 | Session titles | Desktop app session metadata, falling back to the transcript slug |
 | Activity (generating vs idle) | mtime of `~/.claude/projects/*/{sessionId}.jsonl` |
-| Usage windows (5h / weekly) | Two sources, freshest wins: (a) an optional **user-pasted access token** polling `api.anthropic.com/api/oauth/usage` every 60s — exact data, but the token rotates within hours and must be re-pasted; (b) a statusline hook capturing the `rate_limits` JSON Claude Code pushes to statusline scripts (credential-free fallback, only refreshes on terminal interactions — the desktop app does not invoke statuslines) |
+| Usage windows (5h / weekly) | Two sources, freshest wins: (a) the OAuth usage endpoint `api.anthropic.com/api/oauth/usage` polled every ~3 min with a token ClaudeBar holds (see [Authentication](#authentication--usage-data)) — exact data; (b) a statusline hook capturing the `rate_limits` JSON Claude Code pushes to statusline scripts (credential-free fallback, only refreshes on terminal interactions — the desktop app does not invoke statuslines) |
 | Token/cost stats (per session and per day) | Incremental tail-parsing of the transcript `.jsonl` files |
 
-It never touches the Keychain and never writes to or deletes anything inside `~/.claude` (the statusline/hooks config in `~/.claude/settings.json` was added with consent). The only network call is the optional usage poll to `api.anthropic.com`, authenticated with a token you paste yourself:
+The only network call is the usage poll (plus OAuth sign-in/refresh). It never writes to or deletes anything inside `~/.claude` (the statusline/hooks config in `~/.claude/settings.json` was added with consent). The last good API reading is cached across relaunches, and 429 responses trigger an exponential cooldown (5 min doubling up to 30 min, surfaced in the dropdown).
 
-```sh
-security find-generic-password -s "Claude Code-credentials" -w | jq -r '.claudeAiOauth.accessToken' | pbcopy
-```
+## Authentication & usage data
 
-then click **Paste usage token…** in the gear menu. When the token rotates, the dropdown shows "usage token expired" and falls back to statusline data until you re-paste. The last good API reading is cached across relaunches, and 429 responses trigger an exponential cooldown (5 min doubling up to 30 min, surfaced in the dropdown). (A hybrid Keychain-read mode that removes the re-paste chore is a possible future switch — deliberately deferred for now.)
+The usage windows need an OAuth access token; everything else works without one. Three ways to provide it, pick whichever fits — all of them are optional and the statusline fallback keeps working regardless:
+
+1. **In-app sign-in (recommended — no terminal needed).** Gear menu → **Sign in to Claude…** runs a standard OAuth Authorization Code + PKCE flow in your browser; you copy the code the callback page shows back into **Paste sign-in code from clipboard**. ClaudeBar stores the result in its **own** Keychain item (`ClaudeBar-credentials`) and refreshes it indefinitely using the stored refresh token (rotated token written back each time). After one sign-in the token never goes stale — you never have to touch the terminal.
+
+2. **Keychain token (for terminal users).** The **Use Keychain token for usage** toggle reads the Claude Code CLI's own Keychain item (`Claude Code-credentials`). That item only exists once you've run `claude` and logged in at least once, but from then on ClaudeBar keeps it fresh on its own — the same auto-refresh as path 1. Good if you live in the terminal and would rather not do a separate in-app sign-in. ClaudeBar's own item (path 1) takes precedence when both exist.
+
+3. **Manual paste (legacy fallback).** Copy the token by hand and click **Paste usage token…**:
+
+   ```sh
+   security find-generic-password -s "Claude Code-credentials" -w | jq -r '.claudeAiOauth.accessToken' | pbcopy
+   ```
+
+   This one does **not** auto-refresh — when the token rotates the dropdown shows "usage token expired" and you re-paste. Superseded by paths 1 and 2, kept for flexibility.
+
+> Why both 1 and 2 exist: the `Claude Code-credentials` Keychain item is only refreshed while the CLI is *running*, so desktop-only use let its access token expire (the original staleness bug). ClaudeBar now refreshes whichever item it's using via the OAuth refresh token, so neither path goes stale — path 1 just removes the one-time CLI login too.
 
 ## Build & run
 

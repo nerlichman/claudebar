@@ -97,20 +97,50 @@ struct DropdownView: View {
 
             Divider()
 
+            Button("Copy access token") {
+                appState.copyAccessTokenToClipboard()
+            }
+
+            Divider()
+
+            Toggle("Use Keychain token for usage", isOn: Binding(
+                get: { appState.useKeychainToken },
+                set: { appState.useKeychainToken = $0 }
+            ))
+
+            Divider()
+
+            if appState.awaitingSignInCode {
+                Text("Waiting for browser sign-in…")
+                Button("Paste sign-in code from clipboard") {
+                    appState.completeSignInFromClipboard()
+                }
+                Button("Cancel sign-in") { appState.cancelSignIn() }
+            } else {
+                Button("Sign in to Claude…") { appState.beginSignIn() }
+            }
+
+            Divider()
+
             switch appState.manualTokenState {
             case .none:
+                Text("Usage token: none")
                 Button("Paste usage token from clipboard") {
                     appState.pasteTokenFromClipboard()
                 }
             case .active:
-                Text("Usage token: active")
-                Button("Clear usage token") { appState.clearToken() }
+                Text(appState.usageTokenFromKeychain
+                     ? "Usage token: active (Keychain)"
+                     : "Usage token: active (pasted)")
+                if !appState.usageTokenFromKeychain {
+                    Button("Clear pasted token") { appState.clearToken() }
+                }
             case .expired:
                 Text("Usage token: expired")
                 Button("Paste usage token from clipboard") {
                     appState.pasteTokenFromClipboard()
                 }
-                Button("Clear usage token") { appState.clearToken() }
+                Button("Clear pasted token") { appState.clearToken() }
             }
         } label: {
             Image(systemName: "gearshape")
