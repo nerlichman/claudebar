@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct ClaudeBarApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private let appState: AppState
 
     init() {
