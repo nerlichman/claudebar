@@ -43,7 +43,7 @@ struct UsageSectionView: View {
         return VStack(alignment: .leading, spacing: 6) {
             SectionHeader(title, subtitle: subtitle) {
                 Text("\(Int(window.utilization.rounded()))%")
-                    .font(.system(size: 16, weight: .semibold).monospacedDigit())
+                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
                     .foregroundStyle(window.utilization >= 75 ? color : .primary)
             }
             CapsuleBar(value: window.utilization, tint: color)
@@ -60,7 +60,7 @@ struct UsageSectionView: View {
         return VStack(alignment: .leading, spacing: 6) {
             SectionHeader("Usage Credits") {
                 Text("$\(credit.usedUSD, specifier: "%.2f") of $\(credit.limitUSD, specifier: "%.2f")")
-                    .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
                     .foregroundStyle(credit.utilization >= 75 ? color : .primary)
             }
             CapsuleBar(value: credit.utilization, tint: color)

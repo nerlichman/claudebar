@@ -43,7 +43,7 @@ struct SectionHeader<Trailing: View>: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(title).font(.system(size: 15, weight: .bold))
+            Text(title).font(.system(size: 13, weight: .bold))
             if let subtitle {
                 Text(subtitle)
                     .font(.subheadline)
