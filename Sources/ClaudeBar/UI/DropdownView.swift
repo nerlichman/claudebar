@@ -6,6 +6,7 @@ struct DropdownView: View {
     @State private var showDormant = false
     @State private var showEnded = false
     @State private var expandedSessions: Set<String> = []
+    @State private var showSettings = false
     @State private var launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
     @State private var hooksInstalled = HookInstaller.isInstalled
     @AppStorage("menuBarLabelStyle") private var labelStyleRaw = MenuBarLabelStyle.full.rawValue
@@ -13,7 +14,7 @@ struct DropdownView: View {
     @AppStorage("waitingNotificationsEnabled") private var waitingNotificationsEnabled = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             UsageSectionView(usage: appState.usage)
 
             Divider()
@@ -31,24 +32,39 @@ struct DropdownView: View {
                     .lineLimit(2)
             }
 
+            Divider()
+
+            if let asOf = appState.usage?.source.asOf, asOf > .distantPast {
+                Text("Updated \(asOf.formatted(date: .omitted, time: .shortened))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             HStack(spacing: 8) {
-                Button("Refresh") {
+                Button {
                     appState.refreshAll()
                     appState.requestImmediateUsageRefresh()
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
                 }
-                .controlSize(.small)
+                .buttonStyle(.bordered)
+                .controlSize(.large)
 
-                Spacer()
-
-                settingsMenu
-
-                Button("Quit") {
-                    NSApplication.shared.terminate(nil)
+                // A plain Button fills its half (a Menu hugs its label); the
+                // options open in a popover, like the reference app's window.
+                Button { showSettings.toggle() } label: {
+                    Label("Settings", systemImage: "gearshape")
+                        .frame(maxWidth: .infinity)
                 }
-                .controlSize(.small)
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .popover(isPresented: $showSettings, arrowEdge: .bottom) {
+                    settingsPopover
+                }
             }
         }
-        .padding(12)
+        .padding(16)
         .frame(width: 380)
     }
 
@@ -61,13 +77,14 @@ struct DropdownView: View {
         return nil
     }
 
-    private var settingsMenu: some View {
-        Menu {
+    private var settingsPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
             Picker("Menu bar shows", selection: $labelStyleRaw) {
                 ForEach(MenuBarLabelStyle.allCases) { style in
                     Text(style.displayName).tag(style.rawValue)
                 }
             }
+            .pickerStyle(.menu)
 
             Toggle("Usage notifications", isOn: $notificationsEnabled)
 
@@ -83,9 +100,9 @@ struct DropdownView: View {
             Divider()
 
             if hooksInstalled {
-                Text("Claude Code hooks: installed")
+                settingsCaption("Claude Code hooks: installed")
             } else {
-                Button("Install Claude Code hooks") {
+                settingsRow("Install Claude Code hooks") {
                     do {
                         try HookInstaller.install()
                         hooksInstalled = true
@@ -97,62 +114,83 @@ struct DropdownView: View {
 
             Divider()
 
-            Button("Copy access token") {
-                appState.copyAccessTokenToClipboard()
+            // Connection & usage data — sign-in, token source, and the token
+            // status all serve one purpose, so they live in one block.
+            if appState.awaitingSignInCode {
+                settingsCaption("Waiting for browser sign-in…")
+                settingsRow("Paste sign-in code from clipboard") {
+                    appState.completeSignInFromClipboard()
+                }
+                settingsRow("Cancel sign-in") { appState.cancelSignIn() }
+            } else {
+                settingsRow("Sign in to Claude…") { appState.beginSignIn() }
             }
-
-            Divider()
 
             Toggle("Use Keychain token for usage", isOn: Binding(
                 get: { appState.useKeychainToken },
                 set: { appState.useKeychainToken = $0 }
             ))
 
-            Divider()
-
-            if appState.awaitingSignInCode {
-                Text("Waiting for browser sign-in…")
-                Button("Paste sign-in code from clipboard") {
-                    appState.completeSignInFromClipboard()
-                }
-                Button("Cancel sign-in") { appState.cancelSignIn() }
-            } else {
-                Button("Sign in to Claude…") { appState.beginSignIn() }
-            }
-
-            Divider()
-
             switch appState.manualTokenState {
             case .none:
-                Text("Usage token: none")
-                Button("Paste usage token from clipboard") {
+                settingsCaption("Usage token: none")
+                settingsRow("Paste usage token from clipboard") {
                     appState.pasteTokenFromClipboard()
                 }
             case .active:
-                Text(appState.usageTokenFromKeychain
+                settingsCaption(appState.usageTokenFromKeychain
                      ? "Usage token: active (Keychain)"
                      : "Usage token: active (pasted)")
                 if !appState.usageTokenFromKeychain {
-                    Button("Clear pasted token") { appState.clearToken() }
+                    settingsRow("Clear pasted token") { appState.clearToken() }
                 }
             case .expired:
-                Text("Usage token: expired")
-                Button("Paste usage token from clipboard") {
+                settingsCaption("Usage token: expired", tint: .orange)
+                settingsRow("Paste usage token from clipboard") {
                     appState.pasteTokenFromClipboard()
                 }
-                Button("Clear pasted token") { appState.clearToken() }
+                settingsRow("Clear pasted token") { appState.clearToken() }
             }
-        } label: {
-            Image(systemName: "gearshape")
+
+            settingsRow("Copy access token") {
+                appState.copyAccessTokenToClipboard()
+            }
+
+            Divider()
+
+            settingsRow("Quit ClaudeBar") {
+                NSApplication.shared.terminate(nil)
+            }
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help("Settings")
+        .frame(width: 270)
+        .padding(14)
         .onAppear {
             // Resync in case it was changed in System Settings > Login Items.
             launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
             hooksInstalled = HookInstaller.isInstalled
         }
+    }
+
+    /// A left-aligned, full-width tappable row — the popover's stand-in for a
+    /// menu item so the panel reads like the menu it replaced.
+    private func settingsRow(_ title: String, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            showSettings = false
+        } label: {
+            Text(title)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Non-interactive status line inside the popover (e.g. token state).
+    private func settingsCaption(_ text: String, tint: Color = .secondary) -> some View {
+        Text(text)
+            .font(.callout)
+            .foregroundStyle(tint)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// The login item points at whichever bundle is running, so toggle this

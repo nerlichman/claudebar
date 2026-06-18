@@ -42,6 +42,21 @@ enum Formatters {
         return "\(hours / 24)d \(hours % 24)h"
     }
 
+    /// "Resets at 22:00 · in 4h 27m" when the reset is within a day, else
+    /// "Resets Thu 18 Jun, 11:00" — the polished one-line reset caption.
+    static func resetLine(to date: Date, from now: Date = Date()) -> String {
+        let seconds = date.timeIntervalSince(now)
+        guard seconds > 0 else { return "Resetting…" }
+        if seconds < 24 * 3600 {
+            let time = date.formatted(date: .omitted, time: .shortened)
+            return "Resets at \(time) · in \(countdown(to: date, from: now))"
+        }
+        let when = date.formatted(
+            .dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()
+        )
+        return "Resets \(when)"
+    }
+
     /// "now" / "3m" / "2h" / "5d" — compact age for badges.
     static func ageShort(from date: Date, to now: Date = Date()) -> String {
         let seconds = now.timeIntervalSince(date)
