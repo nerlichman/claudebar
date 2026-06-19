@@ -4,6 +4,10 @@
 # identity stable across rebuilds (TCC/Keychain grants survive) and lets
 # UNUserNotificationCenter deliver native banners. Falls back to ad-hoc when
 # the identity isn't in the keychain. Override with CODESIGN_IDENTITY.
+#
+# When CODESIGN_IDENTITY names a "Developer ID Application" identity, the app
+# is signed with the hardened runtime and a secure timestamp so it can be
+# notarized — that's the distribution path driven by `make dist`.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -32,5 +36,12 @@ cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # (gear menu) — keeps a shared .dmg fully functional without the repo.
 cp scripts/statusline-hook.sh scripts/claudebar-hook.sh "$APP/Contents/Resources/"
 
-codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"
+SIGN_OPTS=(--force --sign "$IDENTITY" --identifier "$BUNDLE_ID")
+# Distribution builds (Developer ID) must use the hardened runtime and a
+# secure timestamp or notarization rejects them. Local dev/ad-hoc signing
+# skips both — timestamping needs a real cert and network access.
+if [[ "$IDENTITY" == "Developer ID"* ]]; then
+  SIGN_OPTS+=(--options runtime --timestamp)
+fi
+codesign "${SIGN_OPTS[@]}" "$APP"
 echo "Built $APP (signed: $IDENTITY)"

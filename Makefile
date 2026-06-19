@@ -1,7 +1,7 @@
 APP := build/ClaudeBar.app
 LOG := $(HOME)/Library/Logs/ClaudeBar/claudebar.log
 
-.PHONY: build app dmg run stop logs verify clean
+.PHONY: build app dmg dist run stop logs verify clean
 
 build:
 	swift build
@@ -9,16 +9,17 @@ build:
 app:
 	./scripts/make-app.sh
 
-# Drag-to-Applications disk image. Note: without Developer ID signing +
-# notarization, recipients must approve the app once via System Settings >
-# Privacy & Security > "Open Anyway".
+# Drag-to-Applications disk image. Unsigned/dev-signed: recipients must
+# approve the app once via System Settings > Privacy & Security > "Open
+# Anyway". For a notarized image distributable to anyone, use `make dist`.
 dmg: app
-	rm -rf build/dmg
-	mkdir -p build/dmg
-	ditto $(APP) build/dmg/ClaudeBar.app
-	ln -s /Applications build/dmg/Applications
-	hdiutil create -volname ClaudeBar -srcfolder build/dmg -ov -format UDZO build/ClaudeBar.dmg
-	rm -rf build/dmg
+	./scripts/make-dmg.sh
+
+# Signed + notarized + stapled DMG ready for public distribution. Requires a
+# Developer ID identity and a notarytool keychain profile — see scripts/dist.sh.
+#   CODESIGN_IDENTITY="Developer ID Application: Your Co (TEAMID)" make dist
+dist:
+	./scripts/dist.sh
 
 install-hook:
 	mkdir -p "$(HOME)/Library/Application Support/ClaudeBar"
