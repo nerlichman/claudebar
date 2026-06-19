@@ -22,6 +22,18 @@
 > [!NOTE]
 > ClaudeBar is an unofficial, independent project — not affiliated with or endorsed by Anthropic. It only **reads** the local files Claude Code already writes, plus one optional usage endpoint you authorize.
 
+## Install
+
+**Homebrew** (recommended):
+
+```sh
+brew install --cask nerlichman/tap/claudebar
+```
+
+**Or download directly:** grab the latest `ClaudeBar.dmg` from the [Releases page](https://github.com/nerlichman/claudebar/releases/latest), open it, and drag ClaudeBar into Applications.
+
+The release DMG is signed with a Developer ID and notarized by Apple, so ClaudeBar installs with no Gatekeeper warning (Homebrew installs that same notarized build). To compile it yourself instead, see [Build & run](#build--run).
+
 ## What it shows
 
 - **Menu bar**: your 5-hour window utilization (e.g. `42%`), with a ✋ icon when any session is waiting for your input and a ⚠️ icon above 90%. The label style is configurable (Icon + %, % only, Icon only) via the Settings popover; compact styles expand back to the full label whenever something needs attention. **Right-click (or control-click)** the status icon for a quick menu — Open / Refresh / Quit.
@@ -94,7 +106,8 @@ This one does **not** auto-refresh — when the token rotates the dropdown shows
 |---|---|
 | `make run` | Build, bundle, sign, and launch from `build/` |
 | `make install` | Build + install to `~/Applications` and launch |
-| `make dmg` | Build a shareable `build/ClaudeBar.dmg` |
+| `make dmg` | Build a shareable (unsigned) `build/ClaudeBar.dmg` |
+| `make dist` | Build a signed, notarized, stapled `build/ClaudeBar.dmg` for release |
 | `make install-hook` | (Re)install the statusline capture hook |
 | `make verify` | End-to-end smoke test |
 | `make logs` | Tail `~/Library/Logs/ClaudeBar/claudebar.log` |
@@ -114,14 +127,14 @@ The Claude Code hooks (statusline capture + lifecycle events) can be installed t
 
 Either way the hook delegates to your original statusline (captured command or `~/.claude/statusline.sh`), so the terminal statusline looks exactly as before. The scripts have no dependencies beyond stock macOS.
 
-## Signing
+## Signing & distribution
 
-`scripts/make-app.sh` signs with an Apple Development certificate by default (override with `CODESIGN_IDENTITY=...`, falls back to ad-hoc if the identity isn't in the keychain). A real signature keeps the app's code-signing identity stable across rebuilds, so TCC Automation grants survive. It does **not** enable native notifications — that needs Developer ID signing (see Notifications above).
+`scripts/make-app.sh` signs local builds with an Apple Development certificate by default (override with `CODESIGN_IDENTITY=...`, falls back to ad-hoc if the identity isn't in the keychain). A real signature keeps the app's code-signing identity stable across rebuilds, so TCC Automation grants survive.
 
-**Sharing**: `make dmg` produces a drag-to-Applications image that is fully self-contained — recipients install the Claude Code hooks from the Settings popover, no repo needed.
+- **`make dmg`** — a quick drag-to-Applications image (unsigned / dev-signed) for sharing with people who can approve it themselves once via **System Settings → Privacy & Security → "Open Anyway"**.
+- **`make dist`** — the public release path: a **Developer ID–signed, notarized, and stapled** DMG that installs with no Gatekeeper prompt. Requires a `Developer ID Application` identity and a notarytool keychain profile — see [`scripts/dist.sh`](scripts/dist.sh) for the one-time setup.
 
-> [!WARNING]
-> The app isn't notarized (that requires the paid Apple Developer Program), so recipients must approve it once via **System Settings → Privacy & Security → "Open Anyway"**, and notifications fall back to `osascript` banners on machines without the signing cert. Building from source (`make install`) avoids the Gatekeeper hoop for anyone with Xcode command line tools.
+Both images are fully self-contained — recipients install the Claude Code hooks from the Settings popover, no repo needed. The notarized `make dist` build additionally delivers native `UNUserNotificationCenter` banners (it carries a Developer ID signature); other builds fall back to `osascript` banners. Building from source (`make install`) also skips the Gatekeeper step for anyone with the Xcode command line tools.
 
 ## Notes
 
