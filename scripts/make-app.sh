@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP=build/ClaudeBar.app
-BUNDLE_ID=dev.gogrow.claudebar
+BUNDLE_ID=com.nerlichman.claudebar
 IDENTITY="${CODESIGN_IDENTITY:-Apple Development: nicolaserlichman@gmail.com (V5A2LD3ZA4)}"
 
 if ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$IDENTITY"; then

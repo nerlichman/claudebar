@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>dev.gogrow.claudebar</string>
+	<string>com.nerlichman.claudebar</string>
 	<key>CFBundleName</key>
 	<string>ClaudeBar</string>
 	<key>CFBundleDisplayName</key>

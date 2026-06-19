@@ -122,7 +122,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    /// `defaults write dev.gogrow.claudebar debugThresholds -array 1` makes a
+    /// `defaults write com.nerlichman.claudebar debugThresholds -array 1` makes a
     /// notification fire at any nonzero usage, for manual testing.
     private func activeThresholds() -> [Double] {
         // `defaults write … -array 1` stores strings, `-array -int 1` stores

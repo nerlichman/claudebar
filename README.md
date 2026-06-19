@@ -126,7 +126,7 @@ Either way the hook delegates to your original statusline (captured command or `
 ## Notes
 
 - **Launch at login**: toggle in the Settings popover (SMAppService). Flip it from the installed copy (`make install`), so the login item points at `~/Applications/ClaudeBar.app` rather than a build directory.
-- Threshold testing: `defaults write dev.gogrow.claudebar debugThresholds -array 1` makes the next evaluation fire at any usage level; `defaults delete dev.gogrow.claudebar debugThresholds` restores 75/90.
+- Threshold testing: `defaults write com.nerlichman.claudebar debugThresholds -array 1` makes the next evaluation fire at any usage level; `defaults delete com.nerlichman.claudebar debugThresholds` restores 75/90.
 - Cost figures use current Claude API per-MTok prices (cache reads at 0.1×, cache writes at 1.25×/2×) — they show what your usage *would* cost at API rates, which is informational if you're on a subscription plan.
 
 ## License
