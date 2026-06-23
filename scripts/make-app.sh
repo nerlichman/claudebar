@@ -36,12 +36,42 @@ cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # (gear menu) — keeps a shared .dmg fully functional without the repo.
 cp scripts/statusline-hook.sh scripts/claudebar-hook.sh "$APP/Contents/Resources/"
 
-SIGN_OPTS=(--force --sign "$IDENTITY" --identifier "$BUNDLE_ID")
-# Distribution builds (Developer ID) must use the hardened runtime and a
-# secure timestamp or notarization rejects them. Local dev/ad-hoc signing
-# skips both — timestamping needs a real cert and network access.
+# Embed Sparkle.framework. SwiftPM links Sparkle as a binary XCFramework but
+# doesn't copy it into a hand-assembled .app, so we do it here — otherwise the
+# app can't dynamically load Sparkle at launch. The framework lives in the SPM
+# artifacts dir (path includes the macOS arch slice).
+# Skip the transient */extract/* staging copy SwiftPM leaves behind; use the
+# resolved artifact under .build/artifacts/sparkle/.
+FRAMEWORK=$(find .build/artifacts -type d -name Sparkle.framework -path '*macos*' -not -path '*/extract/*' 2>/dev/null | head -1)
+if [ -z "$FRAMEWORK" ]; then
+  echo "error: Sparkle.framework not found under .build/artifacts — run 'swift build' first" >&2
+  exit 1
+fi
+mkdir -p "$APP/Contents/Frameworks"
+ditto "$FRAMEWORK" "$APP/Contents/Frameworks/Sparkle.framework"
+# Teach the executable to find the embedded framework at runtime. SwiftPM links
+# it as @rpath/Sparkle.framework/..., so the app needs this search path.
+if ! otool -l "$APP/Contents/MacOS/ClaudeBar" | grep -q "@executable_path/../Frameworks"; then
+  install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/ClaudeBar"
+fi
+
+# Sign inside-out. `codesign --deep` is discouraged and won't apply the
+# hardened runtime to Sparkle's nested helpers the way notarization requires,
+# so each component is signed bottom-up (nested code before its container).
+# Distribution builds (Developer ID) add the hardened runtime + a secure
+# timestamp; local dev/ad-hoc signing skips both (timestamping needs a real
+# cert and network access).
+SIGN_OPTS=(--force --sign "$IDENTITY")
 if [[ "$IDENTITY" == "Developer ID"* ]]; then
   SIGN_OPTS+=(--options runtime --timestamp)
 fi
-codesign "${SIGN_OPTS[@]}" "$APP"
+
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+codesign "${SIGN_OPTS[@]}" "$SPARKLE/XPCServices/Downloader.xpc"
+codesign "${SIGN_OPTS[@]}" "$SPARKLE/XPCServices/Installer.xpc"
+codesign "${SIGN_OPTS[@]}" "$SPARKLE/Updater.app"
+codesign "${SIGN_OPTS[@]}" "$SPARKLE/Autoupdate"
+codesign "${SIGN_OPTS[@]}" "$APP/Contents/Frameworks/Sparkle.framework"
+# App last; it carries the bundle identifier.
+codesign "${SIGN_OPTS[@]}" --identifier "$BUNDLE_ID" "$APP"
 echo "Built $APP (signed: $IDENTITY)"

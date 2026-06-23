@@ -26,5 +26,11 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 Nicolas Erlichman</string>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/nerlichman/claudebar/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>DSnVH671ijqrI9frl0EpJs3Kbrm8L//H05FbzhV6t/I=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
 </dict>
 </plist>

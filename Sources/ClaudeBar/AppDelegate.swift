@@ -11,6 +11,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var clickMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Start the Sparkle updater early so automatic checks can run. No-op on
+        // unsigned dev builds (see SparkleController).
+        _ = SparkleController.shared
         installRightClickMenu()
     }
 
@@ -54,6 +57,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item.target = self
             menu.addItem(item)
         }
+        // Only on signed release builds, where Sparkle is live (see SparkleController).
+        if SparkleController.shared.isAvailable {
+            let updates = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+            updates.target = self
+            menu.addItem(updates)
+        }
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit ClaudeBar", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
@@ -70,6 +79,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func refresh() {
         AppState.shared.refreshAll()
         AppState.shared.requestImmediateUsageRefresh()
+    }
+
+    @objc private func checkForUpdates() {
+        SparkleController.shared.checkForUpdates()
     }
 
     @objc private func quit() {

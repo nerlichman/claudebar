@@ -1,3 +1,7 @@
 .build/
 build/
 .DS_Store
+# Sparkle release staging + signing key — never commit the private key.
+appcast-archives/
+sparkle_private_key*
+*.pem

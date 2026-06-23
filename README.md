@@ -100,7 +100,7 @@ This one does **not** auto-refresh — when the token rotates the dropdown shows
 |---|---|
 | **Platform** | macOS 14 (Sonoma) or later |
 | **Toolchain** | Xcode command line tools · Swift 5.10+ |
-| **Dependencies** | None — Apple frameworks only |
+| **Dependencies** | [Sparkle](https://sparkle-project.org) 2 (auto-updates), fetched via SwiftPM — otherwise Apple frameworks only |
 
 | Command | What it does |
 |---|---|
@@ -108,6 +108,7 @@ This one does **not** auto-refresh — when the token rotates the dropdown shows
 | `make install` | Build + install to `~/Applications` and launch |
 | `make dmg` | Build a shareable (unsigned) `build/ClaudeBar.dmg` |
 | `make dist` | Build a signed, notarized, stapled `build/ClaudeBar.dmg` for release |
+| `make appcast` | Regenerate the Sparkle update feed (`appcast.xml`) from `appcast-archives/` |
 | `make install-hook` | (Re)install the statusline capture hook |
 | `make verify` | End-to-end smoke test |
 | `make logs` | Tail `~/Library/Logs/ClaudeBar/claudebar.log` |
@@ -135,6 +136,28 @@ Either way the hook delegates to your original statusline (captured command or `
 - **`make dist`** — the public release path: a **Developer ID–signed, notarized, and stapled** DMG that installs with no Gatekeeper prompt. Requires a `Developer ID Application` identity and a notarytool keychain profile — see [`scripts/dist.sh`](scripts/dist.sh) for the one-time setup.
 
 Both images are fully self-contained — recipients install the Claude Code hooks from the Settings popover, no repo needed. The notarized `make dist` build additionally delivers native `UNUserNotificationCenter` banners (it carries a Developer ID signature); other builds fall back to `osascript` banners. Building from source (`make install`) also skips the Gatekeeper step for anyone with the Xcode command line tools.
+
+## Auto-updates (Sparkle)
+
+Notarized release builds update themselves via [Sparkle](https://sparkle-project.org): the app polls an [appcast feed](https://raw.githubusercontent.com/nerlichman/claudebar/main/appcast.xml) and prompts the user when a newer version is available, verifying the download against an EdDSA signature. Updates are gated to **Developer ID–signed `.app`s only** — local `make run` / dev builds never self-update (the "Check for Updates…" menu item and the Settings toggle are hidden), so there's nothing to configure for development. `scripts/make-app.sh` embeds and signs `Sparkle.framework` into the bundle automatically.
+
+**One-time setup** — generate the EdDSA signing keys:
+
+```sh
+swift build   # so the Sparkle tools exist under .build/artifacts
+.build/artifacts/sparkle/Sparkle/bin/generate_keys
+```
+
+This stores the **private** key in your login Keychain and prints the **public** key. Paste the public key into `Resources/Info.plist` as `SUPublicEDKey`. Back it up off-machine (`generate_keys -x sparkle_private_key.pem`) — losing the private key means no future build can be delivered as an update.
+
+**Per release:**
+
+1. Bump the version in `Resources/Info.plist` (`CFBundleShortVersionString` + `CFBundleVersion`) and the launch log line in `Sources/ClaudeBar/ClaudeBarApp.swift`. `CFBundleVersion` **must strictly increase** — Sparkle compares it to decide whether an update exists.
+2. `CODESIGN_IDENTITY="Developer ID Application: …" make dist` → notarized `build/ClaudeBar.dmg`.
+3. Stage it for the feed: `cp build/ClaudeBar.dmg appcast-archives/ClaudeBar-<version>.dmg` (keeping past DMGs lets Sparkle build delta updates).
+4. Publish the DMG to the GitHub release it's downloaded from (the `appcast` tag keeps the download URL stable across versions): `gh release upload appcast appcast-archives/ClaudeBar-<version>.dmg`.
+5. `make appcast` — signs each archive with the Keychain key and regenerates `appcast.xml`.
+6. `git add appcast.xml && git commit && git push` — the feed goes live at the `SUFeedURL`.
 
 ## Notes
 

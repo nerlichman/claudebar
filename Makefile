@@ -1,7 +1,7 @@
 APP := build/ClaudeBar.app
 LOG := $(HOME)/Library/Logs/ClaudeBar/claudebar.log
 
-.PHONY: build app dmg dist run stop logs verify clean
+.PHONY: build app dmg dist appcast run stop logs verify clean
 
 build:
 	swift build
@@ -20,6 +20,12 @@ dmg: app
 #   CODESIGN_IDENTITY="Developer ID Application: Your Co (TEAMID)" make dist
 dist:
 	./scripts/dist.sh
+
+# Regenerate the Sparkle update feed (appcast.xml) from the DMGs in
+# appcast-archives/, signing each with the EdDSA key in your Keychain. Run after
+# `make dist` + staging the new DMG. See scripts/appcast.sh for the full flow.
+appcast:
+	./scripts/appcast.sh
 
 install-hook:
 	mkdir -p "$(HOME)/Library/Application Support/ClaudeBar"

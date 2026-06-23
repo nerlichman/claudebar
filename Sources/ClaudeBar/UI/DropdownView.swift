@@ -12,6 +12,9 @@ struct DropdownView: View {
     @AppStorage("menuBarLabelStyle") private var labelStyleRaw = MenuBarLabelStyle.full.rawValue
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
     @AppStorage("waitingNotificationsEnabled") private var waitingNotificationsEnabled = false
+    // Same key SparkleController reads; the toggle just mirrors it and pushes
+    // changes to the live updater (see .onChange below).
+    @AppStorage("autoUpdateEnabled") private var autoUpdateEnabled = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -101,6 +104,14 @@ struct DropdownView: View {
             // SMAppService needs a real bundle; hide under `swift run`.
             if Bundle.main.bundleIdentifier != nil {
                 Toggle("Launch at login", isOn: launchAtLogin)
+            }
+
+            // Only on signed release builds, where Sparkle is live.
+            if SparkleController.shared.isAvailable {
+                Toggle("Automatically check for updates", isOn: $autoUpdateEnabled)
+                    .onChange(of: autoUpdateEnabled) { _, newValue in
+                        SparkleController.shared.autoUpdateEnabled = newValue
+                    }
             }
 
             Divider()
