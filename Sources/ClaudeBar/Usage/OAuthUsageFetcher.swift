@@ -194,24 +194,3 @@ enum UsageCache {
         )
     }
 }
-
-/// User-pasted bearer token. Stored in UserDefaults (user-only readable
-/// plist). The token rotates on Claude Code's refresh cycle, so expect it to
-/// expire within hours — the UI surfaces that instead of failing silently.
-enum ManualTokenStore {
-    private static let key = "manualAccessToken"
-
-    static var token: String? {
-        guard let raw = UserDefaults.standard.string(forKey: key) else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    static func set(_ token: String?) {
-        if let token, !token.isEmpty {
-            UserDefaults.standard.set(token, forKey: key)
-        } else {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-    }
-}

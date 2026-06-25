@@ -131,8 +131,8 @@ struct DropdownView: View {
 
             Divider()
 
-            // Connection & usage data — sign-in, token source, and the token
-            // status all serve one purpose, so they live in one block.
+            // Connection: one decision — get a token (sign in, or use the Claude
+            // Code terminal token), then it self-refreshes. Status reflects it.
             if appState.awaitingSignInCode {
                 settingsCaption("Waiting for browser sign-in…")
                 if let reason = appState.degradedReason {
@@ -144,38 +144,14 @@ struct DropdownView: View {
                     appState.completeSignInFromClipboard()
                 }
                 settingsRow("Cancel sign-in") { appState.cancelSignIn() }
+            } else if appState.usageTokenState == .active {
+                settingsCaption("Connected — usage updates automatically")
             } else {
+                if appState.usageTokenState == .expired {
+                    settingsCaption("Sign-in expired — sign in again", tint: .orange)
+                }
                 settingsRow("Sign in to Claude…") { appState.beginSignIn() }
-            }
-
-            Toggle("Use Keychain token for usage", isOn: Binding(
-                get: { appState.useKeychainToken },
-                set: { appState.useKeychainToken = $0 }
-            ))
-
-            switch appState.manualTokenState {
-            case .none:
-                settingsCaption("Usage token: none")
-                settingsRow("Paste usage token from clipboard") {
-                    appState.pasteTokenFromClipboard()
-                }
-            case .active:
-                settingsCaption(appState.usageTokenFromKeychain
-                     ? "Usage token: active (Keychain)"
-                     : "Usage token: active (pasted)")
-                if !appState.usageTokenFromKeychain {
-                    settingsRow("Clear pasted token") { appState.clearToken() }
-                }
-            case .expired:
-                settingsCaption("Usage token: expired", tint: .orange)
-                settingsRow("Paste usage token from clipboard") {
-                    appState.pasteTokenFromClipboard()
-                }
-                settingsRow("Clear pasted token") { appState.clearToken() }
-            }
-
-            settingsRow("Copy access token") {
-                appState.copyAccessTokenToClipboard()
+                settingsRow("Use Claude Code (terminal) token") { appState.useClaudeCodeToken() }
             }
 
             Divider()

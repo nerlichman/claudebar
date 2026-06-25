@@ -6,7 +6,7 @@ import Observation
 final class AppState {
     static let shared = AppState()
 
-    enum ManualTokenState: Equatable {
+    enum UsageTokenState: Equatable {
         case none, active, expired
     }
 
@@ -25,27 +25,20 @@ final class AppState {
     /// app kills session processes when you navigate away).
     var endedSessions: [Session] = []
     var degradedReason: String?
-    var manualTokenState: ManualTokenState = .none
+    var usageTokenState: UsageTokenState = .none
     /// True while an in-app OAuth sign-in is waiting for the user to paste the
     /// code back from the browser — drives the settings UI.
     var awaitingSignInCode = false
     @ObservationIgnored private var pendingLogin: ClaudeOAuth.PendingLogin?
     /// Prevents overlapping sign-in completions (the paste row stays open).
     @ObservationIgnored private var isCompletingSignIn = false
-    /// True once a usage fetch has succeeded with a token read from the
-    /// Keychain (vs. one pasted in manually) — drives the settings label.
-    var usageTokenFromKeychain = false
-    /// Opt-in: when off (the default), the app never touches the Keychain for
-    /// usage polling — manual paste is used instead. The "Copy access token"
-    /// action reads the Keychain regardless, since that's an explicit click.
+    /// Whether to read a token from the Keychain for usage polling. Enabled by
+    /// signing in or by opting into the Claude Code (terminal) token; off by
+    /// default so the app never raises a Keychain prompt unprompted.
     var useKeychainToken: Bool = UserDefaults.standard.bool(forKey: "useKeychainToken") {
         didSet {
             UserDefaults.standard.set(useKeychainToken, forKey: "useKeychainToken")
-            if useKeychainToken {
-                resumeUsagePollingNow()
-            } else {
-                usageTokenFromKeychain = false
-            }
+            if useKeychainToken { resumeUsagePollingNow() }
         }
     }
 
@@ -112,27 +105,6 @@ final class AppState {
         refreshWeekStats()
     }
 
-    // MARK: - Manual token / OAuth usage polling
-
-    /// Reads the live access token from the Keychain and puts it on the
-    /// clipboard — the one-click replacement for the `security … | jq | pbcopy`
-    /// command. Runs the (potentially prompting) Keychain read off the main
-    /// thread so the menu never beachballs.
-    func copyAccessTokenToClipboard() {
-        Task {
-            let token = await ClaudeTokenProvider.shared.validToken()
-            guard let token else {
-                degradedReason = "Couldn't read the Claude Code token from Keychain"
-                return
-            }
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(token, forType: .string)
-            degradedReason = nil
-            Log.info("copied access token to clipboard (\(token.count) chars)")
-        }
-    }
-
     // MARK: - In-app OAuth sign-in
 
     /// Opens the Claude authorize page in the browser and arms the flow to
@@ -186,40 +158,23 @@ final class AppState {
         degradedReason = nil
     }
 
-    func pasteTokenFromClipboard() {
-        let pasted = NSPasteboard.general.string(forType: .string)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let pasted, pasted.count > 20, !pasted.contains(" ") else {
-            degradedReason = "Clipboard doesn't look like a token"
-            return
-        }
-        ManualTokenStore.set(pasted)
-        Log.info("manual usage token set (\(pasted.count) chars)")
+    /// Opt into the Claude Code (terminal) token without an in-app sign-in: start
+    /// reading the Keychain, where `validToken` prefers our own credential and
+    /// falls back to the CLI's read-only.
+    func useClaudeCodeToken() {
         consecutiveKeychainAuthFailures = 0
-        resumeUsagePollingNow()
+        useKeychainToken = true
     }
 
-    func clearToken() {
-        ManualTokenStore.set(nil)
-        manualTokenState = .none
-        Log.info("manual usage token cleared")
-    }
-
-    /// The token used for the usage API: the Keychain token wins (self-refreshed
-    /// when expired, so it stays valid even during desktop-only stretches), a
-    /// manually-pasted token is the fallback when the read is denied. The
+    /// The token used for the usage API, read from the Keychain (self-refreshed
+    /// when expired, so it stays valid even during desktop-only stretches). The
     /// provider is an actor and may spawn a `security` subprocess / refresh
     /// request, so this never touches the main thread synchronously.
-    private func resolveUsageToken(forceRefresh: Bool = false) async -> (token: String, fromKeychain: Bool)? {
-        // Only reach into the Keychain when the user has explicitly opted in,
-        // so a Keychain prompt is never raised unprompted at launch.
-        if useKeychainToken {
-            if let keychain = await ClaudeTokenProvider.shared.validToken(forceRefresh: forceRefresh) {
-                return (keychain, true)
-            }
-        }
-        if let manual = ManualTokenStore.token { return (manual, false) }
-        return nil
+    private func resolveUsageToken() async -> String? {
+        // Only reach into the Keychain once the user has opted in (signed in or
+        // chosen the terminal token), so a prompt is never raised unprompted.
+        guard useKeychainToken else { return nil }
+        return await ClaudeTokenProvider.shared.validToken()
     }
 
     /// Normal poll cadence. The endpoint rate-limits aggressively, so this
@@ -242,11 +197,6 @@ final class AppState {
         )
     }
 
-    /// Mark the usage token valid and record its origin (keeps the two in sync).
-    private func markTokenActive(fromKeychain: Bool) {
-        manualTokenState = .active
-        usageTokenFromKeychain = fromKeychain
-    }
 
     /// Resume polling now after a deliberate recovery (sign-in / paste / opt-in):
     /// drop any parked back-off timer and restart the loop, which may otherwise be
@@ -302,57 +252,49 @@ final class AppState {
         }
         isFetchingUsage = true
         defer { isFetchingUsage = false }
-        guard let resolved = await resolveUsageToken() else {
-            // No token anywhere — idle the loop without hammering anything.
-            manualTokenState = .none
+        guard let token = await resolveUsageToken() else {
+            // No usable Keychain token — idle the loop without hammering anything.
+            usageTokenState = .none
             setNextFetch(after: Self.usagePollInterval)
             return
         }
-        switch await oauthFetcher.fetch(token: resolved.token) {
+        switch await oauthFetcher.fetch(token: token) {
         case .success(let report):
             usage = report
             UsageCache.save(report)
             degradedReason = nil
             consecutiveRateLimits = 0
             consecutiveKeychainAuthFailures = 0
-            markTokenActive(fromKeychain: resolved.fromKeychain)
+            usageTokenState = .active
             setNextFetch(after: Self.usagePollInterval)
             let five = report.fiveHour.map { "\(Int($0.utilization.rounded()))%" } ?? "n/a"
             let seven = report.sevenDay.map { "\(Int($0.utilization.rounded()))%" } ?? "n/a"
             Log.info("usage: source=api five_hour=\(five) seven_day=\(seven)")
             notifier.evaluate(usage: usage, sessions: sessions)
         case .failure(.unauthorized):
-            if resolved.fromKeychain {
-                if ClaudeCredentials.isTokenEndpointCoolingDown() {
-                    // Can't renew until the penalty clears — park the poll until then.
-                    let remaining = ClaudeCredentials.tokenCooldownRemaining()
-                    markTokenActive(fromKeychain: true)
-                    degradedReason = "Can't refresh the saved login yet (endpoint rate-limited) — auto-retry in \(Int(remaining / 60) + 1)m, or sign in again"
-                    setNextFetch(after: remaining + 5)
-                    Log.error("usage api: token endpoint cooling down, deferring \(Int(remaining))s")
-                    return
-                }
-                consecutiveKeychainAuthFailures += 1
-                if consecutiveKeychainAuthFailures == 1 {
-                    // May have aged out early (server-side rotation) — force a
-                    // refresh of our own item and retry shortly.
-                    _ = await ClaudeTokenProvider.shared.validToken(forceRefresh: true)
-                    degradedReason = "Keychain usage token expired — refreshing"
-                    setNextFetch(after: 15)
-                    Log.error("usage api: keychain token rejected, forcing token refresh")
-                } else {
-                    // Refresh didn't help — the refresh token is dead; ask for re-auth.
-                    manualTokenState = .expired
-                    degradedReason = "Sign in to Claude again — saved login expired"
-                    setNextFetch(after: Self.usagePollInterval)
-                    Log.error("usage api: keychain token still rejected after refresh, asking for re-auth")
-                }
+            if ClaudeCredentials.isTokenEndpointCoolingDown() {
+                // Can't renew until the penalty clears — park the poll until then.
+                let remaining = ClaudeCredentials.tokenCooldownRemaining()
+                usageTokenState = .active
+                degradedReason = "Can't refresh the saved login yet (endpoint rate-limited) — auto-retry in \(Int(remaining / 60) + 1)m, or sign in again"
+                setNextFetch(after: remaining + 5)
+                Log.error("usage api: token endpoint cooling down, deferring \(Int(remaining))s")
+                return
+            }
+            consecutiveKeychainAuthFailures += 1
+            if consecutiveKeychainAuthFailures == 1 {
+                // May have aged out early (server-side rotation) — force a
+                // refresh of our own item and retry shortly.
+                _ = await ClaudeTokenProvider.shared.validToken(forceRefresh: true)
+                degradedReason = "Keychain usage token expired — refreshing"
+                setNextFetch(after: 15)
+                Log.error("usage api: keychain token rejected, forcing token refresh")
             } else {
-                manualTokenState = .expired
-                degradedReason = OAuthUsageFetcher.FetchError.unauthorized.userMessage
-                Log.error("usage api: manual token rejected, stopping polls")
-                oauthTask?.cancel()
-                oauthTask = nil
+                // Refresh didn't help — the refresh token is dead; ask for re-auth.
+                usageTokenState = .expired
+                degradedReason = "Sign in to Claude again — saved login expired"
+                setNextFetch(after: Self.usagePollInterval)
+                Log.error("usage api: keychain token still rejected after refresh, asking for re-auth")
             }
         case .failure(.rateLimited):
             consecutiveRateLimits += 1
@@ -360,7 +302,7 @@ final class AppState {
             let cooldown = Self.rateLimitCooldowns[idx]
             setNextFetch(after: cooldown)
             // A 429 means the token is valid but throttled — keep the label active.
-            markTokenActive(fromKeychain: resolved.fromKeychain)
+            usageTokenState = .active
             degradedReason = "usage API rate-limited — retrying in \(Int(cooldown / 60))m"
             Log.error("usage api: rate-limited, cooling down \(Int(cooldown))s")
         case .failure(let error):
