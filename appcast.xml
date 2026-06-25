@@ -9,7 +9,7 @@
             <sparkle:shortVersionString>0.1.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/nerlichman/claudebar/releases/download/appcast/ClaudeBar-0.1.2.dmg" length="2155584" type="application/octet-stream" sparkle:edSignature="H2aLK9aK96Pq+u7prkLSdu5tMQDrpUNqSOKLUe41TFgNWF+Bo+7R7Y5t1AhfEU6xKSijy5UWBgcAWs5LJMqeAA=="/>
+            <enclosure url="https://github.com/nerlichman/claudebar/releases/download/v0.1.2/ClaudeBar-0.1.2.dmg" length="2155584" type="application/octet-stream" sparkle:edSignature="H2aLK9aK96Pq+u7prkLSdu5tMQDrpUNqSOKLUe41TFgNWF+Bo+7R7Y5t1AhfEU6xKSijy5UWBgcAWs5LJMqeAA=="/>
         </item>
     </channel>
 </rss>
