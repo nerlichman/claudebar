@@ -112,6 +112,9 @@ struct DropdownView: View {
                     .onChange(of: autoUpdateEnabled) { _, newValue in
                         SparkleController.shared.autoUpdateEnabled = newValue
                     }
+                settingsRow("Check for updates…") {
+                    SparkleController.shared.checkForUpdates()
+                }
             }
 
             Divider()
