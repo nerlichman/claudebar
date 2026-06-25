@@ -5,27 +5,21 @@
 # is copied to the repo root and, once committed + pushed to `main`, is served at
 # the app's SUFeedURL (raw.githubusercontent.com/.../main/appcast.xml).
 #
-# Per-release flow:
-#   1. bump the version (Info.plist CFBundleShortVersionString + CFBundleVersion,
-#      and the log line in ClaudeBarApp.swift). CFBundleVersion MUST increase.
-#   2. CODESIGN_IDENTITY="Developer ID Application: …" make dist   # build/ClaudeBar.dmg
-#   3. cp build/ClaudeBar.dmg appcast-archives/ClaudeBar-<version>.dmg
-#   4. upload that DMG to the GitHub release it will be downloaded from
-#      (see DOWNLOAD_URL_PREFIX below), e.g.:
-#        gh release upload appcast appcast-archives/ClaudeBar-<version>.dmg
-#   5. make appcast                                               # regenerate appcast.xml
-#   6. git add appcast.xml && git commit -m "Release <version>" && git push   # go live
+# Each version's DMG is hosted on its OWN normal GitHub release (tag vX.Y.Z) — so
+# users get one-click "latest" downloads and changelog notes — and the feed points
+# at those per-version assets. generate_appcast only accepts one constant
+# --download-url-prefix, so we generate with a placeholder path segment and then
+# rewrite each enclosure to its release URL using the version embedded in the
+# filename (ClaudeBar-<version>.dmg). Signatures are over file content, not URLs,
+# so the rewrite is safe.
 #
-# generate_appcast builds each enclosure URL as <DOWNLOAD_URL_PREFIX><filename>,
-# so every DMG must be downloadable from that one stable base. Hosting all
-# versions under a single GitHub release (tag `appcast`) keeps the prefix
-# constant and lets Sparkle compute delta updates. Override the base or archive
-# dir via env vars if you host elsewhere.
+# See RELEASING.md for the full per-release flow.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 ARCHIVES="${ARCHIVES:-appcast-archives}"
-DOWNLOAD_URL_PREFIX="${DOWNLOAD_URL_PREFIX:-https://github.com/nerlichman/claudebar/releases/download/appcast/}"
+RELEASE_BASE="${RELEASE_BASE:-https://github.com/nerlichman/claudebar/releases/download}"
+PLACEHOLDER="$RELEASE_BASE/_ver_/"
 
 GEN=$(find .build/artifacts -type f -name generate_appcast -not -path '*/extract/*' 2>/dev/null | head -1)
 if [ -z "$GEN" ]; then
@@ -38,8 +32,22 @@ if [ -z "$(find "$ARCHIVES" \( -name '*.dmg' -o -name '*.zip' \) 2>/dev/null)" ]
   exit 1
 fi
 
-echo "generating appcast from $ARCHIVES/ (download prefix: $DOWNLOAD_URL_PREFIX)"
-"$GEN" --download-url-prefix "$DOWNLOAD_URL_PREFIX" "$ARCHIVES"
+echo "generating appcast from $ARCHIVES/"
+"$GEN" --download-url-prefix "$PLACEHOLDER" "$ARCHIVES"
 
-cp "$ARCHIVES/appcast.xml" appcast.xml
+# Point each enclosure at its per-version release asset, normalizing whatever
+# path segment generate_appcast emitted/preserved (the _ver_ placeholder, or an
+# older one) to vX.Y.Z based on the version in the filename:
+#   …/releases/download/<anything>/ClaudeBar-0.1.2.dmg
+#   → …/releases/download/v0.1.2/ClaudeBar-0.1.2.dmg
+sed -E "s#/releases/download/[^/]+/ClaudeBar-([0-9][0-9.]*)\.dmg#/releases/download/v\1/ClaudeBar-\1.dmg#g" \
+  "$ARCHIVES/appcast.xml" > appcast.xml
+
+# Sanity: every download URL must now be a per-version (vX.Y.Z) release asset.
+if grep -oE 'https://[^"]*/releases/download/[^"]+' appcast.xml | grep -vqE '/releases/download/v[0-9]'; then
+  echo "error: an enclosure URL isn't a vX.Y.Z release asset — archives must be named ClaudeBar-<version>.dmg" >&2
+  rm -f appcast.xml
+  exit 1
+fi
+
 echo "✓ wrote appcast.xml — commit + push to main to publish the update feed."
