@@ -1,0 +1,15 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>ClaudeBar</title>
+        <item>
+            <title>0.1.2</title>
+            <pubDate>Thu, 25 Jun 2026 12:52:44 -0300</pubDate>
+            <sparkle:version>3</sparkle:version>
+            <sparkle:shortVersionString>0.1.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/nerlichman/claudebar/releases/download/appcast/ClaudeBar-0.1.2.dmg" length="2155584" type="application/octet-stream" sparkle:edSignature="H2aLK9aK96Pq+u7prkLSdu5tMQDrpUNqSOKLUe41TFgNWF+Bo+7R7Y5t1AhfEU6xKSijy5UWBgcAWs5LJMqeAA=="/>
+        </item>
+    </channel>
+</rss>
