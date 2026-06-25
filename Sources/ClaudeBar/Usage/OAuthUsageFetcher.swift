@@ -29,6 +29,9 @@ actor OAuthUsageFetcher {
         var request = URLRequest(url: Self.endpoint, timeoutInterval: 15)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
+        // The endpoint gates on a Claude Code User-Agent; without it the
+        // default CFNetwork UA is rate-limited far more aggressively.
+        request.setValue(ClaudeCodeIdentity.userAgent, forHTTPHeaderField: "User-Agent")
 
         let data: Data
         let response: URLResponse

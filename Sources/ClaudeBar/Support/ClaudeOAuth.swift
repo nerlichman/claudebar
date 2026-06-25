@@ -11,9 +11,13 @@ import Foundation
 /// the CLI's Keychain item. The resulting refresh token is what `ClaudeCredentials`
 /// uses to mint fresh access tokens indefinitely.
 enum ClaudeOAuth {
-    private static let authorizeURL = "https://claude.ai/oauth/authorize"
+    // Subscription (Pro/Max "chat account") authorize — the `/cai/` path. NOT
+    // platform.claude.com/oauth/authorize, which is the developer/API console
+    // login and the wrong account type for subscription usage.
+    private static let authorizeURL = "https://claude.com/cai/oauth/authorize"
     // Manual copy/paste flow: the callback page renders the code for the user.
-    private static let redirectURI = "https://console.anthropic.com/oauth/code/callback"
+    // Migrated to platform.claude.com alongside the token endpoint.
+    private static let redirectURI = "https://platform.claude.com/oauth/code/callback"
     private static let scopes = "org:create_api_key user:profile user:inference"
 
     /// One in-flight login attempt. `verifier` and `state` must survive from

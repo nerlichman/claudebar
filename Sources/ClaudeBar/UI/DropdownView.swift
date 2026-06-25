@@ -135,7 +135,12 @@ struct DropdownView: View {
             // status all serve one purpose, so they live in one block.
             if appState.awaitingSignInCode {
                 settingsCaption("Waiting for browser sign-in…")
-                settingsRow("Paste sign-in code from clipboard") {
+                if let reason = appState.degradedReason {
+                    settingsCaption(reason, tint: .orange)
+                }
+                // Keep the popover open so the result (verifying / error /
+                // success) is visible right here instead of vanishing on click.
+                settingsRow("Paste sign-in code from clipboard", dismiss: false) {
                     appState.completeSignInFromClipboard()
                 }
                 settingsRow("Cancel sign-in") { appState.cancelSignIn() }
@@ -190,10 +195,10 @@ struct DropdownView: View {
 
     /// A left-aligned, full-width tappable row — the popover's stand-in for a
     /// menu item so the panel reads like the menu it replaced.
-    private func settingsRow(_ title: String, action: @escaping () -> Void) -> some View {
+    private func settingsRow(_ title: String, dismiss: Bool = true, action: @escaping () -> Void) -> some View {
         Button {
             action()
-            showSettings = false
+            if dismiss { showSettings = false }
         } label: {
             Text(title)
                 .frame(maxWidth: .infinity, alignment: .leading)

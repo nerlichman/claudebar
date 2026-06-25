@@ -30,6 +30,8 @@ final class AppState {
     /// code back from the browser — drives the settings UI.
     var awaitingSignInCode = false
     @ObservationIgnored private var pendingLogin: ClaudeOAuth.PendingLogin?
+    /// Prevents overlapping sign-in completions (the paste row stays open).
+    @ObservationIgnored private var isCompletingSignIn = false
     /// True once a usage fetch has succeeded with a token read from the
     /// Keychain (vs. one pasted in manually) — drives the settings label.
     var usageTokenFromKeychain = false
@@ -40,7 +42,7 @@ final class AppState {
         didSet {
             UserDefaults.standard.set(useKeychainToken, forKey: "useKeychainToken")
             if useKeychainToken {
-                requestImmediateUsageRefresh()
+                resumeUsagePollingNow()
             } else {
                 usageTokenFromKeychain = false
             }
@@ -148,21 +150,31 @@ final class AppState {
 
     /// Finishes sign-in with the `code#state` the user copied from the browser.
     func completeSignInFromClipboard() {
-        guard let login = pendingLogin else { return }
+        guard let login = pendingLogin, !isCompletingSignIn else { return }
+        // A fresh sign-in is a separate authorization_code grant and the only way
+        // to recover a dead token, so it must NOT be gated by the refresh cooldown.
         let pasted = NSPasteboard.general.string(forType: .string)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        isCompletingSignIn = true
+        degradedReason = "Checking sign-in code…"
         Task {
+            defer { isCompletingSignIn = false }
             switch await ClaudeOAuth.complete(pasted: pasted, login: login) {
             case .success(let creds):
                 await ClaudeTokenProvider.shared.adopt(creds)
                 pendingLogin = nil
                 awaitingSignInCode = false
                 degradedReason = nil
+                consecutiveKeychainAuthFailures = 0
                 Log.info("oauth login: success")
-                startOAuthLoop()
-                requestImmediateUsageRefresh()
+                resumeUsagePollingNow()
             case .failure(let error):
-                degradedReason = error.userMessage
+                // A throttled/down endpoint shows up as a 429, not a bad code.
+                if ClaudeCredentials.isTokenEndpointCoolingDown() {
+                    degradedReason = "Claude's sign-in service is rate-limited or down right now — try again later"
+                } else {
+                    degradedReason = error.userMessage
+                }
                 Log.error("oauth login: \(error.userMessage)")
             }
         }
@@ -183,8 +195,8 @@ final class AppState {
         }
         ManualTokenStore.set(pasted)
         Log.info("manual usage token set (\(pasted.count) chars)")
-        startOAuthLoop()
-        requestImmediateUsageRefresh()
+        consecutiveKeychainAuthFailures = 0
+        resumeUsagePollingNow()
     }
 
     func clearToken() {
@@ -215,12 +227,36 @@ final class AppState {
     /// fetch time is persisted so relaunches can't hammer the endpoint.
     private static let usagePollInterval: TimeInterval = 180
     private static let nextFetchKey = "nextUsageFetchAt"
+    /// Usage-429 backoff ramp, held at the last step.
+    private static let rateLimitCooldowns: [TimeInterval] = [60, 300, 600, 900]
     @ObservationIgnored private var consecutiveRateLimits = 0
+    /// Consecutive 401s on a Keychain token: the 1st forces a refresh, a repeat
+    /// means the refresh token is dead → ask for re-auth.
+    @ObservationIgnored private var consecutiveKeychainAuthFailures = 0
+    /// Single-flight guard so a manual nudge can't fetch alongside the loop.
+    @ObservationIgnored private var isFetchingUsage = false
 
     private func setNextFetch(after seconds: TimeInterval) {
         UserDefaults.standard.set(
             Date().timeIntervalSince1970 + seconds, forKey: Self.nextFetchKey
         )
+    }
+
+    /// Mark the usage token valid and record its origin (keeps the two in sync).
+    private func markTokenActive(fromKeychain: Bool) {
+        manualTokenState = .active
+        usageTokenFromKeychain = fromKeychain
+    }
+
+    /// Resume polling now after a deliberate recovery (sign-in / paste / opt-in):
+    /// drop any parked back-off timer and restart the loop, which may otherwise be
+    /// asleep on a long deferral a one-shot nudge can't interrupt.
+    private func resumeUsagePollingNow() {
+        consecutiveRateLimits = 0
+        setNextFetch(after: 0)
+        oauthTask?.cancel()
+        oauthTask = nil
+        startOAuthLoop()
     }
 
     private func startOAuthLoop() {
@@ -239,15 +275,33 @@ final class AppState {
         }
     }
 
-    /// Manual refresh: also nudge the API poll, but never bypass the
-    /// rate-limit cooldown.
+    @ObservationIgnored private var lastManualFetch = Date.distantPast
+
+    /// A user-initiated nudge (Refresh button): skip the normal poll spacing so a
+    /// click does something, but still respect an active rate-limit / cooldown
+    /// penalty (clicking through a 429 only resets the server's window) and a 15s
+    /// debounce. Recovery actions use `resumeUsagePollingNow` instead.
     func requestImmediateUsageRefresh() {
-        let next = UserDefaults.standard.double(forKey: Self.nextFetchKey)
-        guard Date().timeIntervalSince1970 >= next else { return }
+        let now = Date()
+        let remaining = UserDefaults.standard.double(forKey: Self.nextFetchKey) - now.timeIntervalSince1970
+        guard remaining <= Self.usagePollInterval,
+              consecutiveRateLimits == 0,
+              !ClaudeCredentials.isTokenEndpointCoolingDown(),
+              now.timeIntervalSince(lastManualFetch) >= 15
+        else { return }
+        lastManualFetch = now
+        setNextFetch(after: 0)
         Task { await refreshUsageFromAPI() }
     }
 
     private func refreshUsageFromAPI() async {
+        // A fetch is already in flight; let it own the schedule (and avoid a spin).
+        if isFetchingUsage {
+            setNextFetch(after: Self.usagePollInterval)
+            return
+        }
+        isFetchingUsage = true
+        defer { isFetchingUsage = false }
         guard let resolved = await resolveUsageToken() else {
             // No token anywhere — idle the loop without hammering anything.
             manualTokenState = .none
@@ -260,8 +314,8 @@ final class AppState {
             UsageCache.save(report)
             degradedReason = nil
             consecutiveRateLimits = 0
-            manualTokenState = .active
-            usageTokenFromKeychain = resolved.fromKeychain
+            consecutiveKeychainAuthFailures = 0
+            markTokenActive(fromKeychain: resolved.fromKeychain)
             setNextFetch(after: Self.usagePollInterval)
             let five = report.fiveHour.map { "\(Int($0.utilization.rounded()))%" } ?? "n/a"
             let seven = report.sevenDay.map { "\(Int($0.utilization.rounded()))%" } ?? "n/a"
@@ -269,13 +323,30 @@ final class AppState {
             notifier.evaluate(usage: usage, sessions: sessions)
         case .failure(.unauthorized):
             if resolved.fromKeychain {
-                // The token can be rejected before its clock-expiry (e.g. a
-                // server-side rotation). Force a refresh via the stored refresh
-                // token now and retry shortly, rather than hard-stopping.
-                _ = await ClaudeTokenProvider.shared.validToken(forceRefresh: true)
-                degradedReason = "Keychain usage token expired — refreshing"
-                setNextFetch(after: 10)
-                Log.error("usage api: keychain token rejected, forcing token refresh")
+                if ClaudeCredentials.isTokenEndpointCoolingDown() {
+                    // Can't renew until the penalty clears — park the poll until then.
+                    let remaining = ClaudeCredentials.tokenCooldownRemaining()
+                    markTokenActive(fromKeychain: true)
+                    degradedReason = "Can't refresh the saved login yet (endpoint rate-limited) — auto-retry in \(Int(remaining / 60) + 1)m, or sign in again"
+                    setNextFetch(after: remaining + 5)
+                    Log.error("usage api: token endpoint cooling down, deferring \(Int(remaining))s")
+                    return
+                }
+                consecutiveKeychainAuthFailures += 1
+                if consecutiveKeychainAuthFailures == 1 {
+                    // May have aged out early (server-side rotation) — force a
+                    // refresh of our own item and retry shortly.
+                    _ = await ClaudeTokenProvider.shared.validToken(forceRefresh: true)
+                    degradedReason = "Keychain usage token expired — refreshing"
+                    setNextFetch(after: 15)
+                    Log.error("usage api: keychain token rejected, forcing token refresh")
+                } else {
+                    // Refresh didn't help — the refresh token is dead; ask for re-auth.
+                    manualTokenState = .expired
+                    degradedReason = "Sign in to Claude again — saved login expired"
+                    setNextFetch(after: Self.usagePollInterval)
+                    Log.error("usage api: keychain token still rejected after refresh, asking for re-auth")
+                }
             } else {
                 manualTokenState = .expired
                 degradedReason = OAuthUsageFetcher.FetchError.unauthorized.userMessage
@@ -285,8 +356,11 @@ final class AppState {
             }
         case .failure(.rateLimited):
             consecutiveRateLimits += 1
-            let cooldown = min(300 * pow(2, Double(consecutiveRateLimits - 1)), 1800)
+            let idx = min(consecutiveRateLimits, Self.rateLimitCooldowns.count) - 1
+            let cooldown = Self.rateLimitCooldowns[idx]
             setNextFetch(after: cooldown)
+            // A 429 means the token is valid but throttled — keep the label active.
+            markTokenActive(fromKeychain: resolved.fromKeychain)
             degradedReason = "usage API rate-limited — retrying in \(Int(cooldown / 60))m"
             Log.error("usage api: rate-limited, cooling down \(Int(cooldown))s")
         case .failure(let error):
