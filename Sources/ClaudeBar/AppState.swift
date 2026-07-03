@@ -349,7 +349,7 @@ final class AppState {
             let events = tailParser.newEvents(in: url)
             guard !events.isEmpty else { continue }
             changed = true
-            let sessionId = url.deletingPathExtension().lastPathComponent
+            let sessionId = Self.owningSessionId(forTranscript: url)
             var lifetime = perSessionLifetime[sessionId] ?? .empty
             var todayShare = perSessionToday[sessionId] ?? .empty
             for event in events {
@@ -424,11 +424,17 @@ final class AppState {
     /// process, using context captured while tailing them for costs.
     private func rebuildEndedSessions(now: Date) {
         let liveIds = Set(sessions.map(\.sessionId))
+        // The top-level transcript per session id supplies its metadata and
+        // activity — subagent transcripts (whose tokens fold into the parent's
+        // stats) never front a row of their own.
+        var parentURL: [String: URL] = [:]
+        for url in trackedTranscripts where !Self.isSubagentTranscript(url) {
+            parentURL[url.deletingPathExtension().lastPathComponent] = url
+        }
         var ended: [Session] = []
-        for url in trackedTranscripts {
-            let sessionId = url.deletingPathExtension().lastPathComponent
-            guard !liveIds.contains(sessionId),
-                  let todayShare = sessionStats[sessionId], todayShare.messageCount > 0
+        for (sessionId, todayShare) in sessionStats {
+            guard !liveIds.contains(sessionId), todayShare.messageCount > 0,
+                  let url = parentURL[sessionId]
             else { continue }
             let meta = tailParser.metadata(for: url)
             let cwd = meta?.cwd ?? ""
@@ -457,6 +463,21 @@ final class AppState {
         }
     }
 
+    /// The session a transcript belongs to. Subagent transcripts live at
+    /// `<sessionId>/subagents/agent-*.jsonl` and are attributed to their parent
+    /// session; top-level transcripts are `<sessionId>.jsonl`.
+    static func owningSessionId(forTranscript url: URL) -> String {
+        let parent = url.deletingLastPathComponent()
+        if parent.lastPathComponent == "subagents" {
+            return parent.deletingLastPathComponent().lastPathComponent
+        }
+        return url.deletingPathExtension().lastPathComponent
+    }
+
+    static func isSubagentTranscript(_ url: URL) -> Bool {
+        url.deletingLastPathComponent().lastPathComponent == "subagents"
+    }
+
     private func transcriptsModified(since cutoff: Date) -> Set<URL> {
         let fm = FileManager.default
         guard let projectDirs = try? fm.contentsOfDirectory(
@@ -465,19 +486,26 @@ final class AppState {
         ) else { return [] }
 
         var result: Set<URL> = []
-        for dir in projectDirs {
-            guard let files = try? fm.contentsOfDirectory(
-                at: dir, includingPropertiesForKeys: [.contentModificationDateKey],
+        // Collect .jsonl files in `dir` modified since the cutoff. Session
+        // subdirectories are descended one level into their `subagents/` child,
+        // whose transcripts hold token usage that never lands in the parent
+        // .jsonl — omitting them undercounts subagent-heavy sessions.
+        func collect(in dir: URL) {
+            guard let entries = try? fm.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey],
                 options: .skipsHiddenFiles
-            ) else { continue }
-            for file in files where file.pathExtension == "jsonl" {
-                let mtime = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?
-                    .contentModificationDate
-                if let mtime, mtime >= cutoff {
-                    result.insert(file)
+            ) else { return }
+            for entry in entries {
+                let values = try? entry.resourceValues(forKeys: [.contentModificationDateKey, .isDirectoryKey])
+                if values?.isDirectory == true {
+                    collect(in: entry.appendingPathComponent("subagents", isDirectory: true))
+                } else if entry.pathExtension == "jsonl",
+                          let mtime = values?.contentModificationDate, mtime >= cutoff {
+                    result.insert(entry)
                 }
             }
         }
+        for dir in projectDirs { collect(in: dir) }
         return result
     }
 

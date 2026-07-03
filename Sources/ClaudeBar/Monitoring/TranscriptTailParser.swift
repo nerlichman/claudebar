@@ -9,6 +9,7 @@ struct UsageEvent {
     let cacheReadTokens: Int
     let cacheCreation5mTokens: Int
     let cacheCreation1hTokens: Int
+    let webSearchRequests: Int
 }
 
 /// Incremental parser for transcript .jsonl files. Tracks a byte offset per
@@ -123,6 +124,9 @@ final class TranscriptTailParser {
             cache1h = 0
         }
 
+        let serverToolUse = usage["server_tool_use"] as? [String: Any]
+        let webSearchRequests = intValue(serverToolUse?["web_search_requests"])
+
         let timestamp = (json["timestamp"] as? String).flatMap {
             Self.isoFormatter.date(from: $0) ?? Self.isoPlainFormatter.date(from: $0)
         }
@@ -135,7 +139,8 @@ final class TranscriptTailParser {
             outputTokens: intValue(usage["output_tokens"]),
             cacheReadTokens: intValue(usage["cache_read_input_tokens"]),
             cacheCreation5mTokens: cache5m,
-            cacheCreation1hTokens: cache1h
+            cacheCreation1hTokens: cache1h,
+            webSearchRequests: webSearchRequests
         )
     }
 }

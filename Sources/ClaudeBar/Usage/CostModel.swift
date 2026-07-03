@@ -15,6 +15,10 @@ enum CostModel {
         ("claude-haiku-4", Pricing(inputPerMTok: 1, outputPerMTok: 5)),
     ]
 
+    /// Server-side web search is billed per request ($10 / 1,000), independent
+    /// of the model. Web fetch is not separately billed.
+    private static let webSearchPerRequest = 10.0 / 1_000
+
     static func pricing(forModel model: String) -> Pricing? {
         table.first { model.hasPrefix($0.prefix) }?.pricing
     }
@@ -30,6 +34,7 @@ enum CostModel {
             + Double(event.cacheReadTokens) * p.inputPerMTok * 0.1 * perTok
             + Double(event.cacheCreation5mTokens) * p.inputPerMTok * 1.25 * perTok
             + Double(event.cacheCreation1hTokens) * p.inputPerMTok * 2.0 * perTok
+            + Double(event.webSearchRequests) * webSearchPerRequest
         return (usd, known)
     }
 }
