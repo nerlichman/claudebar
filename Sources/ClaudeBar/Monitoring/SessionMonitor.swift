@@ -7,6 +7,11 @@ final class SessionMonitor {
     static let activeWindow: TimeInterval = 10
     /// Idle sessions with no engagement for this long are demoted to dormant.
     static let dormancyWindow: TimeInterval = 60 * 60
+    /// How long a "prompt" hook event keeps a session active without the
+    /// transcript moving. An in-flight turn writes the transcript on every
+    /// API response and tool result, so the longest legitimate silence is one
+    /// slow tool call — minutes, not hours.
+    static let promptStalenessWindow: TimeInterval = 15 * 60
 
     private let transcriptIndex: TranscriptIndex
     private let eventsStore: SessionEventsStore
@@ -51,15 +56,19 @@ final class SessionMonitor {
             let state: ActivityState
             if file.status == "waiting" {
                 state = .waiting(reason: file.waitingFor ?? "input")
-            } else if hookEvent?.name == "prompt" {
+            } else if let hookEvent, hookEvent.name == "prompt",
+                      now.timeIntervalSince(max(hookEvent.timestamp, lastActivity ?? .distantPast))
+                        < Self.promptStalenessWindow {
                 // The events store holds only the latest lifecycle event, so a
                 // "prompt" (UserPromptSubmit) with no following "stop" means the
                 // turn is still in flight — Claude is working. The transcript
                 // window alone misses this: long thinking, waiting for the first
                 // token, or a slow tool/bash call can go >activeWindow seconds
                 // without writing the transcript, which would flip a busy
-                // session to .idle. Stop fires reliably at the end of every turn
-                // and overwrites this to "stop", so the session settles to idle.
+                // session to .idle. But Stop is not guaranteed: it doesn't fire
+                // on user interrupts, and desktop sessions have been observed
+                // pinned Active for days by an orphaned prompt event. So the
+                // prompt only counts while it — or the transcript — is fresh.
                 state = .active
             } else if isGenerating {
                 state = .active
