@@ -71,6 +71,14 @@ final class AppState {
         // Last good API reading survives relaunches; the freshest-wins rule
         // in refreshUsage() keeps it unless something newer appears.
         usage = UsageCache.load()
+        // usageTokenState only flips to .active after a live poll succeeds, but
+        // that first poll is deferred by the persisted fetch throttle (up to a
+        // full poll interval). Without this, an already-signed-in user who opens
+        // the menu right after launch sees "Sign in to Claude…" until the poll
+        // lands — reading a pending window as signed-out. We have a
+        // self-refreshing token in the Keychain, so reflect that now; the poll
+        // downgrades to .expired/.none only if the token turns out unusable.
+        if useKeychainToken { usageTokenState = .active }
         refreshAll()
         // Drives usage polling from a pasted token, or — only if the user has
         // opted in — a token read from the Keychain. No Keychain touch here
