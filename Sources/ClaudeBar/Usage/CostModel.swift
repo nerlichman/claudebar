@@ -1,7 +1,9 @@
 import Foundation
 
 /// Pricing per million tokens, verified against the Claude API docs on
-/// 2026-06-10. Matched by model-ID prefix so dated/suffixed variants resolve.
+/// 2026-07-08. Matched by model-family prefix (not version) so point releases
+/// like `claude-sonnet-5` resolve without a table edit; an unknown model falls
+/// back to `table[0]` (the most expensive tier) and is flagged approximate.
 enum CostModel {
     struct Pricing {
         let inputPerMTok: Double
@@ -9,10 +11,13 @@ enum CostModel {
     }
 
     private static let table: [(prefix: String, pricing: Pricing)] = [
-        ("claude-fable-5", Pricing(inputPerMTok: 10, outputPerMTok: 50)),
-        ("claude-opus-4", Pricing(inputPerMTok: 5, outputPerMTok: 25)),
-        ("claude-sonnet-4", Pricing(inputPerMTok: 3, outputPerMTok: 15)),
-        ("claude-haiku-4", Pricing(inputPerMTok: 1, outputPerMTok: 5)),
+        ("claude-fable", Pricing(inputPerMTok: 10, outputPerMTok: 50)),
+        ("claude-mythos", Pricing(inputPerMTok: 10, outputPerMTok: 50)),
+        ("claude-opus", Pricing(inputPerMTok: 5, outputPerMTok: 25)),
+        // Sonnet 5 carries an intro rate of $2/$10 through 2026-08-31; we keep
+        // the standard $3/$15 so estimates stay conservative (slightly high).
+        ("claude-sonnet", Pricing(inputPerMTok: 3, outputPerMTok: 15)),
+        ("claude-haiku", Pricing(inputPerMTok: 1, outputPerMTok: 5)),
     ]
 
     /// Server-side web search is billed per request ($10 / 1,000), independent
