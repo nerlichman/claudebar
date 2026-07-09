@@ -185,10 +185,20 @@ final class AppState {
         return await ClaudeTokenProvider.shared.validToken()
     }
 
-    /// Normal poll cadence. The endpoint rate-limits aggressively, so this
-    /// stays conservative and 429s back off exponentially. The next-allowed
-    /// fetch time is persisted so relaunches can't hammer the endpoint.
-    private static let usagePollInterval: TimeInterval = 180
+    /// Poll cadence adapts to activity: tight while a session is actively
+    /// working (so the 5-hour/weekly % keeps up), relaxed when idle to spare
+    /// the rate-limited endpoint. 429s still back off exponentially, and the
+    /// next-allowed fetch time is persisted so relaunches can't hammer it.
+    private static let activePollInterval: TimeInterval = 60
+    private static let idlePollInterval: TimeInterval = 180
+    /// Interval for the *next* scheduled poll, chosen by current activity.
+    private var usagePollInterval: TimeInterval {
+        hasActiveSession ? Self.activePollInterval : Self.idlePollInterval
+    }
+    /// Any session actively producing output right now (not idle/waiting/ended).
+    private var hasActiveSession: Bool { sessions.contains { $0.state == .active } }
+    /// Rising-edge tracker so only the idle→active transition nudges the poll.
+    @ObservationIgnored private var hadActiveSession = false
     private static let nextFetchKey = "nextUsageFetchAt"
     /// Usage-429 backoff ramp, held at the last step.
     private static let rateLimitCooldowns: [TimeInterval] = [60, 300, 600, 900]
@@ -242,7 +252,7 @@ final class AppState {
     func requestImmediateUsageRefresh() {
         let now = Date()
         let remaining = UserDefaults.standard.double(forKey: Self.nextFetchKey) - now.timeIntervalSince1970
-        guard remaining <= Self.usagePollInterval,
+        guard remaining <= Self.idlePollInterval,
               consecutiveRateLimits == 0,
               !ClaudeCredentials.isTokenEndpointCoolingDown(),
               now.timeIntervalSince(lastManualFetch) >= 15
@@ -255,7 +265,7 @@ final class AppState {
     private func refreshUsageFromAPI() async {
         // A fetch is already in flight; let it own the schedule (and avoid a spin).
         if isFetchingUsage {
-            setNextFetch(after: Self.usagePollInterval)
+            setNextFetch(after: usagePollInterval)
             return
         }
         isFetchingUsage = true
@@ -263,7 +273,7 @@ final class AppState {
         guard let token = await resolveUsageToken() else {
             // No usable Keychain token — idle the loop without hammering anything.
             usageTokenState = .none
-            setNextFetch(after: Self.usagePollInterval)
+            setNextFetch(after: Self.idlePollInterval)
             return
         }
         switch await oauthFetcher.fetch(token: token) {
@@ -274,7 +284,7 @@ final class AppState {
             consecutiveRateLimits = 0
             consecutiveKeychainAuthFailures = 0
             usageTokenState = .active
-            setNextFetch(after: Self.usagePollInterval)
+            setNextFetch(after: usagePollInterval)
             let five = report.fiveHour.map { "\(Int($0.utilization.rounded()))%" } ?? "n/a"
             let seven = report.sevenDay.map { "\(Int($0.utilization.rounded()))%" } ?? "n/a"
             let perModel = report.perModelWeekly
@@ -304,7 +314,7 @@ final class AppState {
                 // Refresh didn't help — the refresh token is dead; ask for re-auth.
                 usageTokenState = .expired
                 degradedReason = "Sign in to Claude again — saved login expired"
-                setNextFetch(after: Self.usagePollInterval)
+                setNextFetch(after: Self.idlePollInterval)
                 Log.error("usage api: keychain token still rejected after refresh, asking for re-auth")
             }
         case .failure(.rateLimited):
@@ -318,7 +328,7 @@ final class AppState {
             Log.error("usage api: rate-limited, cooling down \(Int(cooldown))s")
         case .failure(let error):
             // Transient — keep the loop running, keep last good data.
-            setNextFetch(after: Self.usagePollInterval)
+            setNextFetch(after: Self.idlePollInterval)
             Log.error("usage api: \(error.userMessage)")
         }
     }
@@ -557,8 +567,33 @@ final class AppState {
         if snapshot != sessions {
             sessions = snapshot
         }
+        // The moment work starts, tighten the usage poll so the % reflects it
+        // instead of waiting out the idle interval. Rising edge only; the poll's
+        // own success path then holds the fast cadence while work continues.
+        let active = hasActiveSession
+        if active && !hadActiveSession { nudgeUsagePollForActivity() }
+        hadActiveSession = active
         logStateSummary()
         notifier.evaluate(usage: usage, sessions: sessions)
+    }
+
+    /// A session just went active: pull the next usage poll forward to the
+    /// active cadence so the % catches up quickly. Never stomps a rate-limit /
+    /// cooldown backoff, never schedules sooner than one active interval (so a
+    /// flapping session can't hammer the endpoint), and no-ops if a poll is
+    /// already due that soon. Restarts the loop so an idle sleep already under
+    /// way adopts the shortened schedule instead of waiting it out.
+    private func nudgeUsagePollForActivity() {
+        guard useKeychainToken,
+              consecutiveRateLimits == 0,
+              !ClaudeCredentials.isTokenEndpointCoolingDown(),
+              !isFetchingUsage else { return }
+        let scheduled = UserDefaults.standard.double(forKey: Self.nextFetchKey) - Date().timeIntervalSince1970
+        guard scheduled > Self.activePollInterval else { return }
+        setNextFetch(after: Self.activePollInterval)
+        oauthTask?.cancel()
+        oauthTask = nil
+        startOAuthLoop()
     }
 
     var anySessionWaiting: Bool {
