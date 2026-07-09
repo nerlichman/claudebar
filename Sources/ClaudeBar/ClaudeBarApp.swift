@@ -8,7 +8,7 @@ struct ClaudeBarApp: App {
 
     init() {
         Self.enforceSingleInstance()
-        Log.info("ClaudeBar launched (version 0.1.2)")
+        Log.info("ClaudeBar launched (version 0.1.3)")
         appState = AppState.shared
         appState.start()
     }
