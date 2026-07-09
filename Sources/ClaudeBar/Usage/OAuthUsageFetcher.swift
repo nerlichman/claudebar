@@ -78,17 +78,51 @@ actor OAuthUsageFetcher {
         ))
     }
 
-    // The per-model weekly bucket is plan-dependent — `seven_day_fable` on a
-    // Team seat, `seven_day_opus` on Max, `seven_day_sonnet` elsewhere, or
-    // absent entirely. Parse every `seven_day_<model>` key generically and
-    // label it from the suffix rather than assuming a single model.
+    // Per-model weekly buckets come from the structured `limits` array: an
+    // entry with kind "weekly_scoped" carries `percent`, `resets_at`, and a
+    // `scope.model.display_name` (e.g. "Fable"). Which model (if any) is
+    // plan-dependent and the server supplies the label, so nothing is
+    // hard-coded. The legacy flat `seven_day_<model>` keys are now always null
+    // on this endpoint; they're kept only as a fallback for older responses.
     static func perModelWeekly(_ json: [String: Any]) -> [ModelWeeklyWindow] {
-        json.keys
+        if let limits = json["limits"] as? [[String: Any]] {
+            let scoped = limits.compactMap { entry -> ModelWeeklyWindow? in
+                guard entry["kind"] as? String == "weekly_scoped",
+                      let window = Self.limitWindow(entry) else { return nil }
+                return ModelWeeklyWindow(model: Self.scopeLabel(entry["scope"]) ?? "Scoped",
+                                         window: window)
+            }
+            if !scoped.isEmpty { return scoped }
+        }
+        return json.keys
             .filter { $0.hasPrefix("seven_day_") }
             .sorted()
             .compactMap { key in
                 Self.window(json[key]).map { ModelWeeklyWindow(key: key, window: $0) }
             }
+    }
+
+    private static func limitWindow(_ entry: [String: Any]) -> UsageWindow? {
+        let utilization: Double
+        switch entry["percent"] {
+        case let d as Double: utilization = d
+        case let i as Int: utilization = Double(i)
+        default: return nil
+        }
+        let resetsAt = (entry["resets_at"] as? String).flatMap(parseISO8601)
+        return UsageWindow(utilization: utilization, resetsAt: resetsAt)
+    }
+
+    private static func scopeLabel(_ scope: Any?) -> String? {
+        guard let scope = scope as? [String: Any] else { return nil }
+        if let model = scope["model"] as? [String: Any],
+           let name = model["display_name"] as? String, !name.isEmpty {
+            return name
+        }
+        if let surface = scope["surface"] as? String, !surface.isEmpty {
+            return surface.capitalized
+        }
+        return nil
     }
 
     // Verified response shape (2026-06-12):
