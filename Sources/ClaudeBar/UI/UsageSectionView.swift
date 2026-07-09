@@ -16,10 +16,12 @@ struct UsageSectionView: View {
                         if let window = usage.sevenDay {
                             windowRow("All Models", "Weekly window (7 days)", window, now: context.date)
                         }
-                        // Only shown once there's actual Sonnet usage — an
-                        // always-0% row is noise for Opus-only users.
-                        if let window = usage.sevenDaySonnet, window.utilization > 0 {
-                            windowRow("Sonnet", "Weekly window", window, now: context.date)
+                        // Per-model weekly buckets (Fable / Opus / Sonnet — the
+                        // plan decides which, if any). Labeled from the API, and
+                        // shown only once there's real usage; an always-0% row
+                        // is noise on plans that expose an unused bucket.
+                        ForEach(usage.perModelWeekly.filter { $0.window.utilization > 0 }, id: \.model) { entry in
+                            windowRow(entry.model, "Weekly window", entry.window, now: context.date)
                         }
                         // Authoritative dollar spend, straight from the server.
                         if let credit = usage.credit {
@@ -100,7 +102,10 @@ struct UsageSectionView: View {
     UsageSectionView(usage: UsageReport(
         fiveHour: UsageWindow(utilization: 32, resetsAt: Date().addingTimeInterval(4 * 3600 + 27 * 60)),
         sevenDay: UsageWindow(utilization: 45, resetsAt: Date().addingTimeInterval(3 * 86_400)),
-        sevenDaySonnet: nil,
+        perModelWeekly: [
+            ModelWeeklyWindow(model: "Fable",
+                              window: UsageWindow(utilization: 79, resetsAt: Date().addingTimeInterval(3 * 86_400)))
+        ],
         credit: CreditBalance(usedUSD: 5.29, limitUSD: 10, utilization: 53),
         source: .api(asOf: Date())
     ))

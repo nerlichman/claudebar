@@ -41,14 +41,20 @@ final class StatuslineUsageReader {
         let sevenDay = Self.window(limits["seven_day"])
         guard fiveHour != nil || sevenDay != nil else { return nil }
 
-        // Best-effort; statusline omits the sonnet window and credit balance,
-        // in which case these stay nil and the rows simply don't render.
-        let sonnet = Self.window(limits["seven_day_sonnet"])
+        // Best-effort; statusline usually omits per-model windows and the
+        // credit balance, in which case these stay empty and the rows simply
+        // don't render. Parse whatever per-model weekly keys are present.
+        let perModel = limits.keys
+            .filter { $0.hasPrefix("seven_day_") }
+            .sorted()
+            .compactMap { key -> ModelWeeklyWindow? in
+                Self.window(limits[key]).map { ModelWeeklyWindow(key: key, window: $0) }
+            }
 
         return UsageReport(
             fiveHour: fiveHour,
             sevenDay: sevenDay,
-            sevenDaySonnet: sonnet,
+            perModelWeekly: perModel,
             source: .statusline(asOf: mtime)
         )
     }
@@ -66,7 +72,9 @@ final class StatuslineUsageReader {
         return UsageReport(
             fiveHour: norm(report.fiveHour),
             sevenDay: norm(report.sevenDay),
-            sevenDaySonnet: norm(report.sevenDaySonnet),
+            perModelWeekly: report.perModelWeekly.map {
+                ModelWeeklyWindow(model: $0.model, window: norm($0.window) ?? $0.window)
+            },
             credit: report.credit,
             source: report.source
         )

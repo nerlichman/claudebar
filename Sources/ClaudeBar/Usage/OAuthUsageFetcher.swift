@@ -66,16 +66,29 @@ actor OAuthUsageFetcher {
 
         // Best-effort extras — absence never fails the fetch, so the 5h/weekly
         // behavior is preserved if the schema ever drops these.
-        let sonnet = Self.window(json["seven_day_sonnet"])
+        let perModel = Self.perModelWeekly(json)
         let credit = Self.credit(json["extra_usage"])
 
         return .success(UsageReport(
             fiveHour: fiveHour,
             sevenDay: sevenDay,
-            sevenDaySonnet: sonnet,
+            perModelWeekly: perModel,
             credit: credit,
             source: .api(asOf: Date())
         ))
+    }
+
+    // The per-model weekly bucket is plan-dependent — `seven_day_fable` on a
+    // Team seat, `seven_day_opus` on Max, `seven_day_sonnet` elsewhere, or
+    // absent entirely. Parse every `seven_day_<model>` key generically and
+    // label it from the suffix rather than assuming a single model.
+    static func perModelWeekly(_ json: [String: Any]) -> [ModelWeeklyWindow] {
+        json.keys
+            .filter { $0.hasPrefix("seven_day_") }
+            .sorted()
+            .compactMap { key in
+                Self.window(json[key]).map { ModelWeeklyWindow(key: key, window: $0) }
+            }
     }
 
     // Verified response shape (2026-06-12):
@@ -139,58 +152,43 @@ actor OAuthUsageFetcher {
 
 /// Last good API report, persisted so app relaunches don't regress to stale
 /// statusline data while the endpoint cools down or the token is replaced.
+/// Stored as JSON so the variable-length per-model window list round-trips
+/// cleanly; a pre-JSON cache entry simply fails to decode and is refetched.
 enum UsageCache {
     private static let key = "lastUsageReport"
 
+    private struct Snapshot: Codable {
+        let asOf: Date
+        let fiveHour: UsageWindow?
+        let sevenDay: UsageWindow?
+        let perModelWeekly: [ModelWeeklyWindow]
+        let credit: CreditBalance?
+    }
+
     static func save(_ report: UsageReport) {
         guard case .api(let asOf) = report.source else { return }
-        var dict: [String: Double] = ["asOf": asOf.timeIntervalSince1970]
-        if let five = report.fiveHour {
-            dict["fivePct"] = five.utilization
-            if let reset = five.resetsAt { dict["fiveReset"] = reset.timeIntervalSince1970 }
-        }
-        if let seven = report.sevenDay {
-            dict["sevenPct"] = seven.utilization
-            if let reset = seven.resetsAt { dict["sevenReset"] = reset.timeIntervalSince1970 }
-        }
-        if let sonnet = report.sevenDaySonnet {
-            dict["sonnetPct"] = sonnet.utilization
-            if let reset = sonnet.resetsAt { dict["sonnetReset"] = reset.timeIntervalSince1970 }
-        }
-        if let credit = report.credit {
-            dict["creditUsed"] = credit.usedUSD
-            dict["creditLimit"] = credit.limitUSD
-            dict["creditUtil"] = credit.utilization
-        }
-        UserDefaults.standard.set(dict, forKey: key)
+        let snapshot = Snapshot(
+            asOf: asOf,
+            fiveHour: report.fiveHour,
+            sevenDay: report.sevenDay,
+            perModelWeekly: report.perModelWeekly,
+            credit: report.credit
+        )
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        UserDefaults.standard.set(data, forKey: key)
     }
 
     static func load() -> UsageReport? {
-        guard let dict = UserDefaults.standard.dictionary(forKey: key) as? [String: Double],
-              let asOf = dict["asOf"]
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data),
+              snapshot.fiveHour != nil || snapshot.sevenDay != nil
         else { return nil }
-        func window(_ pctKey: String, _ resetKey: String) -> UsageWindow? {
-            guard let pct = dict[pctKey] else { return nil }
-            return UsageWindow(
-                utilization: pct,
-                resetsAt: dict[resetKey].map { Date(timeIntervalSince1970: $0) }
-            )
-        }
-        let five = window("fivePct", "fiveReset")
-        let seven = window("sevenPct", "sevenReset")
-        guard five != nil || seven != nil else { return nil }
-        let sonnet = window("sonnetPct", "sonnetReset")
-        var credit: CreditBalance?
-        if let limit = dict["creditLimit"], let used = dict["creditUsed"] {
-            credit = CreditBalance(
-                usedUSD: used, limitUSD: limit,
-                utilization: dict["creditUtil"] ?? (limit > 0 ? used / limit * 100 : 0)
-            )
-        }
         return UsageReport(
-            fiveHour: five, sevenDay: seven,
-            sevenDaySonnet: sonnet, credit: credit,
-            source: .api(asOf: Date(timeIntervalSince1970: asOf))
+            fiveHour: snapshot.fiveHour,
+            sevenDay: snapshot.sevenDay,
+            perModelWeekly: snapshot.perModelWeekly,
+            credit: snapshot.credit,
+            source: .api(asOf: snapshot.asOf)
         )
     }
 }
