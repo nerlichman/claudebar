@@ -33,7 +33,10 @@ if [ -z "$(find "$ARCHIVES" \( -name '*.dmg' -o -name '*.zip' \) 2>/dev/null)" ]
 fi
 
 echo "generating appcast from $ARCHIVES/"
-"$GEN" --download-url-prefix "$PLACEHOLDER" "$ARCHIVES"
+# --maximum-deltas 0: we don't ship delta updates (pointless for a ~2 MB app),
+# and a .delta enclosure wouldn't match the vX.Y.Z rewrite below. Without this,
+# generate_appcast emits a .delta between archive pairs once 2+ versions exist.
+"$GEN" --maximum-deltas 0 --download-url-prefix "$PLACEHOLDER" "$ARCHIVES"
 
 # Point each enclosure at its per-version release asset, normalizing whatever
 # path segment generate_appcast emitted/preserved (the _ver_ placeholder, or an
