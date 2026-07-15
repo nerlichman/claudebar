@@ -98,7 +98,7 @@ final class SessionMonitor {
                 cwd: file.cwd,
                 startedAt: startedAt,
                 entrypoint: Entrypoint(rawValue: file.entrypoint),
-                title: titleResolver.title(forSessionId: file.sessionId, transcriptURL: transcriptURL),
+                title: titleResolver.title(forSessionId: file.sessionId, name: file.name, transcriptURL: transcriptURL),
                 desktopSessionId: titleResolver.desktopSessionId(forSessionId: file.sessionId),
                 state: state,
                 lastTranscriptActivity: lastActivity,

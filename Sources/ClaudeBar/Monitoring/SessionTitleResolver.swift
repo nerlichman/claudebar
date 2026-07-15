@@ -1,9 +1,9 @@
 import Foundation
 
-/// Human-readable session titles and desktop session ids. Primary source:
-/// the desktop app's session metadata (`local_*.json`, keyed by
-/// cliSessionId). Title fallback: the `slug` field Claude Code writes into
-/// transcripts, de-kebabed.
+/// Human-readable session titles and desktop session ids. Title sources, in
+/// order: the desktop app's session metadata (`local_*.json`, keyed by
+/// cliSessionId); the `name` Claude Code writes into the session file (the
+/// same label its FleetView shows); the `slug` in the transcript, de-kebabed.
 final class SessionTitleResolver {
     private struct DesktopMeta {
         var title: String?
@@ -19,10 +19,22 @@ final class SessionTitleResolver {
     private var indexBuiltAt = Date.distantPast
     private var slugCache: [String: (value: String?, at: Date)] = [:]
 
-    func title(forSessionId sessionId: String, transcriptURL: URL?) -> String? {
+    func title(forSessionId sessionId: String, name: String?, transcriptURL: URL?) -> String? {
         rebuildIndexIfNeeded()
         if let title = metaByCliId[sessionId]?.title { return title }
+        if let name = Self.meaningfulName(name) { return name }
         return slug(forSessionId: sessionId, transcriptURL: transcriptURL)
+    }
+
+    /// Before a session is named, Claude Code seeds `name` with an id-like
+    /// token ("14f2c238") or "<repo>-<suffix>" ("konvoy-api-fa") — both read
+    /// worse than the project name, so keep only titles that look generated
+    /// (they carry words, i.e. whitespace; the fallbacks are a single token).
+    private static func meaningfulName(_ name: String?) -> String? {
+        guard let name = name?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty, name.contains(" ")
+        else { return nil }
+        return name
     }
 
     /// The desktop app's `local_…` id for a CLI session, used to deep-link
