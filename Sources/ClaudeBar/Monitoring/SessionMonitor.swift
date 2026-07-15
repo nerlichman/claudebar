@@ -145,7 +145,13 @@ final class SessionMonitor {
         return sessions.sorted {
             if $0.isDormant != $1.isDormant { return !$0.isDormant }
             if $0.state.sortRank != $1.state.sortRank { return $0.state.sortRank < $1.state.sortRank }
-            return ($0.lastInteraction ?? $0.startedAt) > ($1.lastInteraction ?? $1.startedAt)
+            // Within a state group the order must stay put across polls.
+            // lastInteraction ticks on every transcript write, so ordering by
+            // it made concurrently-working agents swap places each refresh;
+            // startedAt is fixed for a session's life. sessionId breaks the
+            // (rare) exact-timestamp tie so the order is fully deterministic.
+            if $0.startedAt != $1.startedAt { return $0.startedAt > $1.startedAt }
+            return $0.sessionId < $1.sessionId
         }
     }
 }
