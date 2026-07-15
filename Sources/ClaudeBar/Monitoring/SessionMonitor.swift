@@ -16,7 +16,25 @@ final class SessionMonitor {
     private let transcriptIndex: TranscriptIndex
     private let eventsStore: SessionEventsStore
     private let titleResolver = SessionTitleResolver()
+    private let jobStateReader = JobStateReader()
     private let fm = FileManager.default
+
+    /// Map a background job's daemon `tempo` to an activity state. Returns nil
+    /// when there's no job (interactive/desktop/VS Code) or the tempo is one we
+    /// don't model — the caller then falls back to hook/transcript heuristics.
+    private static func activityState(
+        for job: JobStateReader.JobState?, isGenerating: Bool
+    ) -> ActivityState? {
+        guard let tempo = job?.tempo else { return nil }
+        switch tempo {
+        case "active": return .active
+        case "blocked": return .waiting(reason: job?.needs ?? "input")
+        // "idle" means the agent finished its turn; a trailing transcript write
+        // can still land, so let a live generating window win the tie.
+        case "idle": return isGenerating ? .active : .idle
+        default: return nil
+        }
+    }
 
     init(transcriptIndex: TranscriptIndex, eventsStore: SessionEventsStore) {
         self.transcriptIndex = transcriptIndex
@@ -39,6 +57,7 @@ final class SessionMonitor {
             guard ProcessLiveness.validate(file) else { continue }
 
             let startedAt = Date(timeIntervalSince1970: file.startedAt / 1000)
+            let entrypoint = Entrypoint(rawValue: file.entrypoint)
             let hookEvent = eventsStore.event(forSessionId: file.sessionId)
 
             // A SessionEnd hook after this process started means the session
@@ -54,7 +73,14 @@ final class SessionMonitor {
             let isGenerating = lastActivity.map { now.timeIntervalSince($0) < Self.activeWindow } ?? false
 
             let state: ActivityState
-            if file.status == "waiting" {
+            if let jobState = Self.activityState(
+                for: jobStateReader.state(forJobId: file.jobId), isGenerating: isGenerating
+            ) {
+                // The daemon's own view of a background agent — authoritative,
+                // and the only place a "needs input" block is legible (the
+                // session file only carries busy/idle for bg jobs).
+                state = jobState
+            } else if file.status == "waiting" {
                 state = .waiting(reason: file.waitingFor ?? "input")
             } else if let hookEvent, hookEvent.name == "prompt",
                       now.timeIntervalSince(max(hookEvent.timestamp, lastActivity ?? .distantPast))
@@ -72,12 +98,19 @@ final class SessionMonitor {
                 state = .active
             } else if isGenerating {
                 state = .active
-            } else if hookEvent?.name == "notification" {
+            } else if hookEvent?.name == "notification", entrypoint != .cli {
                 // Desktop and VS Code don't write status:"waiting" into the
                 // session file — the Notification hook is the only signal that
                 // Claude is blocked on input (permission prompt or idle wait).
                 // A live notification stands until the next prompt/stop event
                 // overwrites it, so it survives even hours-long waits.
+                //
+                // The CLI *does* write an authoritative status (handled above),
+                // so for it a lingering notification is noise: Claude fires a
+                // "waiting for your input" notification when it finishes and
+                // idles, and nothing overwrites it until the next prompt — which
+                // would pin a done-and-idle session to Waiting. Trust the status
+                // file there and let it fall through to .idle.
                 state = .waiting(reason: file.waitingFor ?? "input")
             } else {
                 state = .idle
@@ -97,7 +130,7 @@ final class SessionMonitor {
                 sessionId: file.sessionId,
                 cwd: file.cwd,
                 startedAt: startedAt,
-                entrypoint: Entrypoint(rawValue: file.entrypoint),
+                entrypoint: entrypoint,
                 title: titleResolver.title(forSessionId: file.sessionId, name: file.name, transcriptURL: transcriptURL),
                 desktopSessionId: titleResolver.desktopSessionId(forSessionId: file.sessionId),
                 state: state,

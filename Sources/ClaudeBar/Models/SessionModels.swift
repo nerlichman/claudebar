@@ -46,6 +46,7 @@ struct SessionFile: Decodable {
     let version: String?
     let kind: String?
     let name: String?       // FleetView's session label, e.g. "stripe connect integration"
+    let jobId: String?      // daemon job id; keys ~/.claude/jobs/{jobId}/state.json
     let entrypoint: String?
     let status: String?     // "waiting" when blocked on user input
     let waitingFor: String? // e.g. "permission prompt"
