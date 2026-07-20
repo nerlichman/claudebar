@@ -68,26 +68,57 @@ final class TranscriptTailParser {
         }
         guard size > offset else { return [] }
 
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return [] }
-        defer { try? handle.close() }
-        guard (try? handle.seek(toOffset: offset)) != nil,
-              let data = try? handle.readToEnd(), !data.isEmpty
-        else { return [] }
-
-        // Only consume up to the last complete line; a partially-written
-        // trailing line is left for the next pass.
-        guard let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")) else { return [] }
-        let complete = data[data.startIndex...lastNewline]
-        offsets[path] = offset + UInt64(complete.count)
-
         var meta = fileMeta[path] ?? FileMeta()
-        let events = complete.split(separator: UInt8(ascii: "\n"))
-            .compactMap { parseLine(Data($0), meta: &meta) }
+        var events: [UsageEvent] = []
+        offsets[path] = Self.streamLines(of: url, from: offset) { line in
+            if let event = Self.parseUsageLine(line, seen: &self.seenMessageIds, meta: &meta) {
+                events.append(event)
+            }
+        }
         fileMeta[path] = meta
         return events
     }
 
-    private func parseLine(_ data: Data, meta: inout FileMeta) -> UsageEvent? {
+    /// Reads `url` from byte `offset` to EOF in chunks, invoking `onLine` for
+    /// every complete newline-terminated line. A partially-written trailing
+    /// line is left unconsumed. Returns the new offset (start + bytes up to and
+    /// including the last newline seen). Each chunk's lines are processed inside
+    /// an autorelease pool so the Foundation objects `parseUsageLine` produces
+    /// drain per chunk instead of piling up across a multi-MB file — and the
+    /// file is never loaded whole, only a chunk (plus one straddling line) at a
+    /// time.
+    static func streamLines(
+        of url: URL, from offset: UInt64,
+        chunkSize: Int = 256 * 1024, onLine: (Data) -> Void
+    ) -> UInt64 {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return offset }
+        defer { try? handle.close() }
+        guard (try? handle.seek(toOffset: offset)) != nil else { return offset }
+
+        var consumed: UInt64 = 0
+        var leftover = Data()
+        while let chunk = (try? handle.read(upToCount: chunkSize)) ?? nil, !chunk.isEmpty {
+            var buffer = leftover
+            buffer.append(chunk)
+            guard let lastNewline = buffer.lastIndex(of: UInt8(ascii: "\n")) else {
+                leftover = buffer
+                continue
+            }
+            let complete = buffer[buffer.startIndex...lastNewline]
+            autoreleasepool {
+                for line in complete.split(separator: UInt8(ascii: "\n")) {
+                    onLine(Data(line))
+                }
+            }
+            consumed += UInt64(complete.count)
+            leftover = Data(buffer[buffer.index(after: lastNewline)...])
+        }
+        return offset + consumed
+    }
+
+    static func parseUsageLine(
+        _ data: Data, seen: inout Set<String>, meta: inout FileMeta
+    ) -> UsageEvent? {
         guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
 
         if let cwd = json["cwd"] as? String { meta.cwd = cwd }
@@ -100,8 +131,8 @@ final class TranscriptTailParser {
         else { return nil }
 
         if let id = message["id"] as? String {
-            if seenMessageIds.contains(id) { return nil }
-            seenMessageIds.insert(id)
+            if seen.contains(id) { return nil }
+            seen.insert(id)
         }
 
         func intValue(_ any: Any?) -> Int {

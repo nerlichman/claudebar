@@ -35,4 +35,16 @@ struct DayStats: Equatable {
         if !known { costIsApproximate = true }
         messageCount += 1
     }
+
+    /// Folds another aggregate into this one — used to sum cached per-day
+    /// buckets back into a window total without replaying the raw events.
+    mutating func merge(_ other: DayStats) {
+        inputTokens += other.inputTokens
+        outputTokens += other.outputTokens
+        cacheReadTokens += other.cacheReadTokens
+        cacheWriteTokens += other.cacheWriteTokens
+        costUSD += other.costUSD
+        costIsApproximate = costIsApproximate || other.costIsApproximate
+        messageCount += other.messageCount
+    }
 }

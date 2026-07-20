@@ -52,6 +52,7 @@ final class AppState {
     @ObservationIgnored private var oauthTask: Task<Void, Never>?
     @ObservationIgnored private let notifier = NotificationManager()
     @ObservationIgnored private let tailParser = TranscriptTailParser()
+    @ObservationIgnored private let weekStatsCache = TranscriptStatsCache()
     @ObservationIgnored private let endedTitleResolver = SessionTitleResolver()
     @ObservationIgnored private var trackedTranscripts: Set<URL> = []
     @ObservationIgnored private var dayStart = Calendar.current.startOfDay(for: Date())
@@ -406,8 +407,10 @@ final class AppState {
     /// Current-calendar-week cost/token estimate from local transcripts.
     /// Unlike the live, incrementally-tailed Today aggregate, this window has
     /// a moving lower bound (old events fall out at the week boundary), which
-    /// an append-only tail can't express — so it's a full rescan, bounded to
-    /// files touched this week and throttled to a few minutes (timer: 2s).
+    /// an append-only tail can't express. `weekStatsCache` keeps it cheap: it
+    /// parses each file once into per-day buckets keyed on (mtime, size), so a
+    /// pass only re-reads the transcripts that actually changed — throttled to
+    /// a few minutes on top (timer: 2s).
     func refreshWeekStats(force: Bool = false) {
         let now = Date()
         guard force || now.timeIntervalSince(lastWeekScan) > 180 else { return }
@@ -416,17 +419,7 @@ final class AppState {
         // Start of the current week, honoring the locale's first weekday
         // (Mon/Sun) from System Settings; falls back to start of today.
         let cutoff = Calendar.current.dateInterval(of: .weekOfYear, for: now)?.start ?? dayStart
-        // A throwaway parser: reads each file from offset 0 (full contents) and
-        // dedupes on message.id within this scan, without touching the shared
-        // tail parser's offsets that drive the live Today flow.
-        let parser = TranscriptTailParser()
-        var week = DayStats.empty
-        for url in transcriptsModified(since: cutoff) {
-            for event in parser.newEvents(in: url) where (event.timestamp ?? now) >= cutoff {
-                week.add(event)
-            }
-        }
-        weekStats = week
+        weekStats = weekStatsCache.totals(since: cutoff, files: transcriptsModified(since: cutoff))
         logWeekStats()
     }
 
