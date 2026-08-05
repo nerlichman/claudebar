@@ -8,6 +8,12 @@ struct DayStats: Equatable {
     var costUSD = 0.0
     var costIsApproximate = false
     var messageCount = 0
+    /// The slice of `costUSD` billed by requests the user later rewound away.
+    /// Those requests live only in an abandoned transcript snapshot, so they are
+    /// folded into the surviving session rather than dropped — see
+    /// `TranscriptLineageIndex`. Zero for all but a handful of sessions.
+    var rewoundCostUSD = 0.0
+    var rewoundMessageCount = 0
 
     static let empty = DayStats()
 
@@ -36,6 +42,15 @@ struct DayStats: Equatable {
         messageCount += 1
     }
 
+    /// Recasts everything counted so far as spend the user rewound away. Whether
+    /// that's true is a property of the transcript these events came from, not of
+    /// any single event, and it isn't known until every file has been read — so
+    /// it's applied to the finished aggregate rather than event by event.
+    mutating func markRewound() {
+        rewoundCostUSD = costUSD
+        rewoundMessageCount = messageCount
+    }
+
     /// Folds another aggregate into this one — used to sum cached per-day
     /// buckets back into a window total without replaying the raw events.
     mutating func merge(_ other: DayStats) {
@@ -46,5 +61,7 @@ struct DayStats: Equatable {
         costUSD += other.costUSD
         costIsApproximate = costIsApproximate || other.costIsApproximate
         messageCount += other.messageCount
+        rewoundCostUSD += other.rewoundCostUSD
+        rewoundMessageCount += other.rewoundMessageCount
     }
 }

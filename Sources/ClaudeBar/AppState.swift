@@ -54,7 +54,15 @@ final class AppState {
     @ObservationIgnored private let tailParser = TranscriptTailParser()
     @ObservationIgnored private let weekStatsCache = TranscriptStatsCache()
     @ObservationIgnored private let endedTitleResolver = SessionTitleResolver()
+    @ObservationIgnored private let lineage = TranscriptLineageIndex()
     @ObservationIgnored private var trackedTranscripts: Set<URL> = []
+    /// Totals per transcript file, not per session. Which session a file's spend
+    /// is shown under depends on the other files present — a rewound
+    /// conversation leaves several snapshots and only the newest reports — so
+    /// attribution is re-derived on every pass instead of accumulated.
+    @ObservationIgnored private var fileToday: [URL: DayStats] = [:]
+    @ObservationIgnored private var fileLifetime: [URL: DayStats] = [:]
+    @ObservationIgnored private var pendingPublish = true
     @ObservationIgnored private var dayStart = Calendar.current.startOfDay(for: Date())
     @ObservationIgnored private var lastTranscriptScan = Date.distantPast
     @ObservationIgnored private var lastWeekScan = Date.distantPast
@@ -344,10 +352,7 @@ final class AppState {
         if today != dayStart {
             // Midnight rollover — re-read everything fresh.
             dayStart = today
-            dayStats = .empty
-            sessionStats = [:]
-            sessionLifetimeStats = [:]
-            tailParser.resetAll()
+            resetDayAggregation()
             trackedTranscripts = []
             lastTranscriptScan = .distantPast
         }
@@ -363,34 +368,98 @@ final class AppState {
             }
         }
 
-        var day = dayStats
-        var perSessionToday = sessionStats
-        var perSessionLifetime = sessionLifetimeStats
-        var changed = false
-        for url in trackedTranscripts {
-            let events = tailParser.newEvents(in: url)
-            guard !events.isEmpty else { continue }
-            changed = true
-            let sessionId = Self.owningSessionId(forTranscript: url)
-            var lifetime = perSessionLifetime[sessionId] ?? .empty
-            var todayShare = perSessionToday[sessionId] ?? .empty
-            for event in events {
-                lifetime.add(event)
-                if (event.timestamp ?? now) >= dayStart {
-                    todayShare.add(event)
-                    day.add(event)
-                }
-            }
-            perSessionLifetime[sessionId] = lifetime
-            perSessionToday[sessionId] = todayShare
+        // A rewind snapshot is created after the session it copies, so the pass
+        // that first sees it has already credited that shared history to the
+        // older file. Re-running with the new file in hand re-attributes it, and
+        // one retry always suffices: every file is known before it begins, so
+        // the newest of each lineage is read first and nothing can supersede it.
+        if ingest(now: now) {
+            resetDayAggregation()
+            _ = ingest(now: now)
         }
-        if changed {
-            dayStats = day
-            sessionStats = perSessionToday
-            sessionLifetimeStats = perSessionLifetime
-        }
+
+        publishDayStats()
         rebuildEndedSessions(now: now)
         logDayStats()
+    }
+
+    /// Folds newly appended events into their file's totals. Returns true when a
+    /// file turned out to own history already credited to an older snapshot of
+    /// the same conversation, which only a restart can fix.
+    private func ingest(now: Date) -> Bool {
+        for url in lineage.newestFirst(trackedTranscripts) {
+            let events = tailParser.newEvents(in: url)
+            guard !events.isEmpty else { continue }
+            pendingPublish = true
+            var today = fileToday[url] ?? .empty
+            var lifetime = fileLifetime[url] ?? .empty
+            for event in events {
+                switch lineage.claim(event.messageId, for: url) {
+                case .alreadyBilled: continue
+                case .supersededOwner: return true
+                case .fresh: break
+                }
+                lifetime.add(event)
+                if (event.timestamp ?? now) >= dayStart {
+                    today.add(event)
+                }
+            }
+            fileToday[url] = today
+            fileLifetime[url] = lifetime
+        }
+        return false
+    }
+
+    /// Rolls per-file totals up onto the session each one is shown under. Skipped
+    /// when no transcript grew, since attribution can only change when one does.
+    private func publishDayStats() {
+        guard pendingPublish else { return }
+        pendingPublish = false
+        var day = DayStats.empty
+        var perSessionToday: [String: DayStats] = [:]
+        var perSessionLifetime: [String: DayStats] = [:]
+        for (url, stats) in fileToday {
+            day.merge(stats)
+            perSessionToday[attributionSessionId(for: url), default: .empty].merge(rewoundAware(stats, url))
+        }
+        for (url, stats) in fileLifetime {
+            perSessionLifetime[attributionSessionId(for: url), default: .empty].merge(rewoundAware(stats, url))
+        }
+        if dayStats != day { dayStats = day }
+        if sessionStats != perSessionToday { sessionStats = perSessionToday }
+        if sessionLifetimeStats != perSessionLifetime { sessionLifetimeStats = perSessionLifetime }
+    }
+
+    /// Everything an abandoned snapshot still accounts for is, by definition,
+    /// requests that survive in no descendant — the ones the user rewound away.
+    /// Subagent transcripts are exempt: a rewind leaves them in the old session's
+    /// directory without copying them forward, so their absence from the newer
+    /// file says nothing about whether their work was discarded.
+    private func rewoundAware(_ stats: DayStats, _ url: URL) -> DayStats {
+        guard !Self.isSubagentTranscript(url), !lineage.isRepresentative(url) else { return stats }
+        var marked = stats
+        marked.markRewound()
+        return marked
+    }
+
+    private func resetDayAggregation() {
+        tailParser.resetAll()
+        lineage.reset()
+        fileToday = [:]
+        fileLifetime = [:]
+        dayStats = .empty
+        sessionStats = [:]
+        sessionLifetimeStats = [:]
+        pendingPublish = true
+    }
+
+    /// The session a transcript's spend is reported under: its lineage's newest
+    /// snapshot, so a conversation the user rewound reports once, on the row they
+    /// are still in. Subagent transcripts resolve through their parent session
+    /// first — a rewind leaves them behind in the old session's directory, and
+    /// their tokens belong with the conversation that continued.
+    private func attributionSessionId(for url: URL) -> String {
+        Self.owningSessionId(forTranscript: lineage.representative(of: Self.topLevelTranscript(for: url)))
     }
 
     @ObservationIgnored private var lastDayStatsLog = ""
@@ -490,6 +559,16 @@ final class AppState {
 
     static func isSubagentTranscript(_ url: URL) -> Bool {
         url.deletingLastPathComponent().lastPathComponent == "subagents"
+    }
+
+    /// The `<sessionId>.jsonl` a transcript belongs to — itself, or the parent of
+    /// a `<sessionId>/subagents/agent-*.jsonl`. Only top-level transcripts take
+    /// part in rewind lineages, so subagent files resolve through their parent.
+    static func topLevelTranscript(for url: URL) -> URL {
+        guard isSubagentTranscript(url) else { return url }
+        return url.deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathExtension("jsonl")
     }
 
     private func transcriptsModified(since cutoff: Date) -> Set<URL> {

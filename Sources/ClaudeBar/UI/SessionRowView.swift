@@ -88,6 +88,14 @@ struct SessionRowView: View {
                     + " · out \(Formatters.tokenCount(lifetimeStats.outputTokens))"
                     + " · cache \(Formatters.tokenCount(lifetimeStats.cacheReadTokens))r"
                     + " / \(Formatters.tokenCount(lifetimeStats.cacheWriteTokens))w")
+                // Only a rewound conversation has these, and they are the one
+                // figure Claude's own per-session view can't show: the session
+                // that billed them no longer exists there.
+                if lifetimeStats.rewoundMessageCount > 0 {
+                    detailLine("Rewound", "+$\(String(format: "%.2f", lifetimeStats.rewoundCostUSD))"
+                        + " · \(lifetimeStats.rewoundMessageCount)"
+                        + " message\(lifetimeStats.rewoundMessageCount == 1 ? "" : "s") from rewound branches")
+                }
             }
             if case .waiting(let reason) = session.state {
                 detailLine("State", "waiting\(age.map { " \($0)" } ?? "") — \(reason)")

@@ -164,6 +164,8 @@ This stores the **private** key in your login Keychain and prints the **public**
 - **Launch at login**: toggle in the Settings popover (SMAppService). Flip it from the installed copy (`make install`), so the login item points at `~/Applications/ClaudeBar.app` rather than a build directory.
 - Threshold testing: `defaults write com.nerlichman.claudebar debugThresholds -array 1` makes the next evaluation fire at any usage level; `defaults delete com.nerlichman.claudebar debugThresholds` restores 75/90.
 - Cost figures use current Claude API per-MTok prices (cache reads at 0.1×, cache writes at 1.25×/2×) — they show what your usage *would* cost at API rates, which is informational if you're on a subscription plan.
+- **Rewound sessions.** Rewinding a conversation ("rewind to here", or editing an earlier message) doesn't truncate the transcript — Claude Code writes a *new* session file seeded with a copy of the history, keeping each message's original id. A conversation rewound eight times is nine files holding almost the same requests, so counting them per-file bills the same API call up to nine times (measured here: 32% inflation on a week, 2.4× all-time). ClaudeBar counts each request once and reports it under the newest snapshot — the conversation you're still in — so the abandoned ones drop off the list instead of showing slices of a total.
+  Requests you actually rewound away were still billed, so they roll up into that same row and appear as a separate `Rewound` line when non-zero (rare: 7 of 191 sessions here, $5.81 total). That line is the one figure Claude's own per-session view can't show, since the session that billed it no longer exists there — expect a small difference there and nowhere else.
 
 ## License
 

@@ -14,8 +14,16 @@ struct UsageEvent {
 
 /// Incremental parser for transcript .jsonl files. Tracks a byte offset per
 /// file so multi-MB transcripts are read once, then only their appended tail.
-/// Streaming writes the same assistant message's usage line more than once
-/// (verified on this machine), so events are deduped on message.id.
+///
+/// One API response is written as one line per content block — thinking, text,
+/// each tool_use — and every line repeats the response's *complete* usage
+/// object. A single reply with four blocks therefore reports its cache reads
+/// four times, so events are deduped on message.id, which is 1:1 with the
+/// response's requestId.
+///
+/// That dedup is per file. The same id also appears across files once a session
+/// is rewound, but deciding which snapshot a request counts toward is
+/// `TranscriptLineageIndex`'s job, and it needs to see the repeats to do it.
 final class TranscriptTailParser {
     /// Latest context fields seen in a transcript — enough to describe a
     /// session whose process is gone.
@@ -26,7 +34,7 @@ final class TranscriptTailParser {
     }
 
     private var offsets: [String: UInt64] = [:]
-    private var seenMessageIds: Set<String> = []
+    private var seenMessageIds: [String: Set<String>] = [:]
     private var fileMeta: [String: FileMeta] = [:]
     private let fm = FileManager.default
 
@@ -50,7 +58,7 @@ final class TranscriptTailParser {
     /// re-bootstrapping the day.
     func resetAll() {
         offsets = [:]
-        seenMessageIds = []
+        seenMessageIds = [:]
         fileMeta = [:]
     }
 
@@ -63,19 +71,23 @@ final class TranscriptTailParser {
 
         var offset = offsets[path] ?? 0
         if size < offset {
-            // File truncated or replaced — start over.
+            // File truncated or replaced — start over, including the ids seen,
+            // or every re-read line looks like a stream repeat and is dropped.
             offset = 0
+            seenMessageIds[path] = []
         }
         guard size > offset else { return [] }
 
         var meta = fileMeta[path] ?? FileMeta()
+        var seen = seenMessageIds[path] ?? []
         var events: [UsageEvent] = []
         offsets[path] = Self.streamLines(of: url, from: offset) { line in
-            if let event = Self.parseUsageLine(line, seen: &self.seenMessageIds, meta: &meta) {
+            if let event = Self.parseUsageLine(line, seen: &seen, meta: &meta) {
                 events.append(event)
             }
         }
         fileMeta[path] = meta
+        seenMessageIds[path] = seen
         return events
     }
 

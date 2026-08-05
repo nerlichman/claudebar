@@ -16,16 +16,36 @@ import Foundation
 /// written get re-read on a given pass — every file from a past day, and every
 /// idle session's file, is served from cache. Widening the window (week →
 /// month) costs nothing beyond the one-time parse of each newly-included file.
+///
+/// What a cached bucket holds is one entry per billed request rather than a
+/// pre-summed total, because a rewound conversation leaves several transcripts
+/// holding the same requests and only one of them may count. That costs roughly
+/// 150 bytes per request in the window — far below the parse high-water mark the
+/// cache exists to avoid, and the only way the window total can match what was
+/// actually billed. See `TranscriptLineageIndex`.
 final class TranscriptStatsCache {
+    /// One billed request's contribution, kept individually rather than folded
+    /// straight into a per-day `DayStats`. Whether a request counts depends on
+    /// the *other* files in the window — a rewound conversation leaves several
+    /// snapshots holding the same requests — and a pre-summed bucket can no
+    /// longer express that.
+    private struct Billed {
+        let id: String?
+        let stats: DayStats
+    }
+
     private struct Entry {
         let mtime: Date
         let size: UInt64
-        let byDay: [Date: DayStats]
+        let byDay: [Date: [Billed]]
     }
 
     private var entries: [String: Entry] = [:]
     private let fm = FileManager.default
     private let calendar = Calendar.current
+    /// Held only for its memoized creation dates, which order snapshots so the
+    /// newest wins a collision. Birthtimes never change, so it is never reset.
+    private let order = TranscriptLineageIndex()
 
     /// Total across every candidate file's events dated on/after `cutoff`.
     /// `files` is the set of transcripts touched within the window; anything
@@ -35,8 +55,9 @@ final class TranscriptStatsCache {
         let cutoffDay = calendar.startOfDay(for: cutoff)
         var live: Set<String> = []
         var total = DayStats.empty
+        var billed: Set<String> = []
 
-        for url in files {
+        for url in order.newestFirst(files) {
             let path = url.path
             live.insert(path)
             guard let attrs = try? fm.attributesOfItem(atPath: path),
@@ -55,8 +76,14 @@ final class TranscriptStatsCache {
                 entries[path] = entry
             }
 
-            for (day, stats) in entry.byDay where day >= cutoffDay {
-                total.merge(stats)
+            // A copied request carries its original timestamp, so both snapshots
+            // land in the same day bucket — day-filtering before the dedup can't
+            // let one slip through.
+            for (day, requests) in entry.byDay where day >= cutoffDay {
+                for request in requests {
+                    if let id = request.id, !billed.insert(id).inserted { continue }
+                    total.merge(request.stats)
+                }
             }
         }
 
@@ -64,21 +91,25 @@ final class TranscriptStatsCache {
         return total
     }
 
-    /// Parses a whole transcript once, folding its usage events into buckets
-    /// keyed by the event's calendar day. Timestamp-less events (rare) fall
-    /// under `fallbackDay` — the file's mtime day, so the bucketing is stable
-    /// across re-parses. Dedup on message.id is per-file (a streamed assistant
-    /// message repeats its usage line within one file); ids never collide
-    /// across session files, so a shared set would only cost memory.
-    private func parseByDay(_ url: URL, fallbackDay: Date) -> [Date: DayStats] {
+    /// Parses a whole transcript once, bucketing its billed requests by calendar
+    /// day. Timestamp-less events (rare) fall under `fallbackDay` — the file's
+    /// mtime day, so the bucketing is stable across re-parses.
+    ///
+    /// The `seen` set here collapses the several lines one response writes, one
+    /// per content block, into the single request they describe. Collapsing the
+    /// same request across *snapshots* of a rewound conversation is the caller's
+    /// job, since it needs every file in the window to do it.
+    private func parseByDay(_ url: URL, fallbackDay: Date) -> [Date: [Billed]] {
         var seen: Set<String> = []
         var meta = TranscriptTailParser.FileMeta()
-        var byDay: [Date: DayStats] = [:]
+        var byDay: [Date: [Billed]] = [:]
         _ = TranscriptTailParser.streamLines(of: url, from: 0) { line in
             guard let event = TranscriptTailParser.parseUsageLine(line, seen: &seen, meta: &meta)
             else { return }
             let day = event.timestamp.map { calendar.startOfDay(for: $0) } ?? fallbackDay
-            byDay[day, default: .empty].add(event)
+            var stats = DayStats.empty
+            stats.add(event)
+            byDay[day, default: []].append(Billed(id: event.messageId, stats: stats))
         }
         return byDay
     }
