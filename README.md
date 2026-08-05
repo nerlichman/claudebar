@@ -12,7 +12,7 @@
   <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white">
   <img alt="Swift 5.10+" src="https://img.shields.io/badge/Swift-5.10%2B-F05138?logo=swift&logoColor=white">
   <img alt="SwiftUI" src="https://img.shields.io/badge/SwiftUI-AppKit-0A84FF?logo=swift&logoColor=white">
-  <img alt="Dependencies: none" src="https://img.shields.io/badge/dependencies-none-2EA043">
+  <img alt="Dependencies: Sparkle only" src="https://img.shields.io/badge/dependencies-Sparkle%20only-2EA043">
 </p>
 
 <p align="center">
@@ -38,12 +38,12 @@ The release DMG is signed with a Developer ID and notarized by Apple, so ClaudeB
 
 - **Menu bar**: your 5-hour window utilization (e.g. `42%`), with a ✋ icon when any session is waiting for your input and a ⚠️ icon above 90%. The label style is configurable (Icon + %, % only, Icon only) via the Settings popover; compact styles expand back to the full label whenever something needs attention. **Right-click (or control-click)** the status icon for a quick menu — Open / Refresh / Quit.
 - **Dropdown**:
-  - Usage windows as titled cards with capsule progress bars and reset countdowns: **Current Session** (5-hour), **All Models** (weekly), a **Sonnet** weekly card (shown only once there's Sonnet usage), and a **Usage Credits** card with your authoritative dollar spend when the account has a credit balance.
+  - Usage windows as titled cards with capsule progress bars and reset countdowns: **Current Session** (5-hour), **All Models** (weekly), a **per-model weekly card** for each model with usage this week (Fable / Opus / Sonnet — whatever the API reports, nothing is hardcoded), and a **Usage Credits** card with your authoritative dollar spend when the account has a credit balance.
   - Every running Claude Code session with its title, project name (worktrees displayed nicely), git branch, surface icon (terminal / desktop / VS Code), and live state — **Active** (generating), **Waiting** (blocked on a permission prompt or your input), or **Idle**.
   - **Click a session to jump to it**: terminal sessions select the exact iTerm tab (matched by the claude process's controlling tty), desktop sessions deep-link to the exact session view (`claude://claude.ai/claude-code-desktop/<id>`, falling back to activating the app), VS Code sessions open the workspace window. The first terminal jump triggers a one-time Automation permission prompt.
   - **Expandable rows**: each session shows its token count and API-equivalent cost inline; expanding reveals today vs lifetime breakdowns.
   - Sessions idle for 60+ minutes collapse into a **dormant** group; sessions that ended collapse into an **earlier today** group.
-  - **Today** and **This week** token totals with the API-equivalent cost (informational for subscription plans). Headline token figures count **input + output only** — matching Claude's own usage view — with cache reads/writes broken out separately below. Cost still includes cache, since usage credits bill it at standard API rates.
+  - **Today** and **This week** token totals with the API-equivalent cost (informational for subscription plans). Headline token figures count **input + output only** — the same choice Claude's own usage view makes — with cache reads/writes broken out separately below. Cost still includes cache, since usage credits bill it at standard API rates.
 - **Notifications**: when the 5-hour or weekly window crosses 75% / 90% (once per window), and — opt-in, off by default — when a session starts waiting for your input (the desktop app and terminal already surface that, and Claude re-enters waiting every turn). Delivered as `osascript` banners (Script Editor icon) — native `UNUserNotificationCenter` banners require provisioned signing (Developer ID or an embedded provisioning profile; an Apple Development cert alone is not enough — verified empirically). The app auto-upgrades to native banners if it ever runs with such a signature. A Settings-popover toggle turns notifications off entirely.
 
 ## How it works — local-first
@@ -57,42 +57,46 @@ Everything except the usage windows comes from local files Claude Code already w
 | Session titles | Desktop app session metadata, falling back to the transcript slug |
 | Activity (generating vs idle) | mtime of `~/.claude/projects/*/{sessionId}.jsonl` |
 | Usage windows (5h / weekly) | Two sources, freshest wins: (a) the OAuth usage endpoint `api.anthropic.com/api/oauth/usage` polled every ~3 min with a token ClaudeBar holds (see [Authentication](#authentication--usage-data)) — exact data; (b) a statusline hook capturing the `rate_limits` JSON Claude Code pushes to statusline scripts (credential-free fallback, only refreshes on terminal interactions — the desktop app does not invoke statuslines) |
-| Token/cost stats (per session and per day) | Incremental tail-parsing of the transcript `.jsonl` files |
+| Token/cost stats (per session and per day) | Incremental tail-parsing of the transcript `.jsonl` files. One API response is written as one line per content block, each repeating the whole usage object, so requests are deduped on `message.id` |
+| Subagent tokens | `~/.claude/projects/*/{sessionId}/subagents/agent-*.jsonl` — a Task's spend never lands in the parent transcript, so these are parsed separately and folded into the session that launched them |
+| Which session a request counts toward | Rewinding a chat writes a new transcript that copies the history verbatim, so the same request exists in several files. Each is counted once and attributed to the newest snapshot of that conversation — see [Rewound sessions](#notes) |
 
 > [!IMPORTANT]
 > The only network call is the usage poll (plus OAuth sign-in/refresh). ClaudeBar never writes to or deletes anything inside `~/.claude` — the statusline/hooks config in `~/.claude/settings.json` is the one exception, added with your consent.
 
-The last good API reading is cached across relaunches, and 429 responses trigger an exponential cooldown (5 min doubling up to 30 min, surfaced in the dropdown).
+The last good API reading is cached across relaunches. Two independent backoffs guard the two endpoints, both surfaced in the dropdown:
+
+- **Usage endpoint 429** — the poll steps back 1 → 5 → 10 → 15 min. The token is fine, just throttled, so the connection stays marked active.
+- **Token endpoint 429** — refreshes stop for 30 min → 2 h → 6 h → 24 h, because every attempt during a penalty window restarts it. A single success resets the ramp, and a deliberate sign-in never escalates it.
 
 ## Authentication & usage data
 
 The usage windows need an OAuth access token; everything else works without one. Pick whichever path fits — all are optional, and the statusline fallback keeps working regardless.
 
-| Method | Auto-refresh | Needs the terminal? | Keychain item |
+| Method | Renewed by ClaudeBar | Needs the terminal? | Keychain item |
 |---|:---:|---|---|
 | **In-app sign-in** &nbsp;_(recommended)_ | ✅ | No | `ClaudeBar-credentials` |
-| **Keychain token** | ✅ | Once, to `claude` login | `Claude Code-credentials` |
-| **Manual paste** &nbsp;_(legacy)_ | ❌ | For the copy command | — |
+| **Keychain token** | ❌ — only while the CLI runs | Once, to `claude` login | `Claude Code-credentials` |
 
-1. **In-app sign-in (recommended — no terminal needed).** Settings → **Sign in to Claude…** runs a standard OAuth Authorization Code + PKCE flow in your browser; you copy the code the callback page shows back into **Paste sign-in code from clipboard**. ClaudeBar stores the result in its **own** Keychain item (`ClaudeBar-credentials`) and refreshes it indefinitely using the stored refresh token (rotated token written back each time). After one sign-in the token never goes stale — you never have to touch the terminal.
+That second row is the whole reason the in-app sign-in exists: the CLI's credential is only refreshed while `claude` is *running*, so desktop-only use lets it expire. ClaudeBar deliberately won't renew it either — rotating that token would invalidate it under a running CLI — so on its own it will eventually go stale. Sign in once and ClaudeBar owns a credential it can keep fresh.
 
-2. **Keychain token (for terminal users).** The **Use Keychain token for usage** toggle reads the Claude Code CLI's own Keychain item (`Claude Code-credentials`). That item only exists once you've run `claude` and logged in at least once, but from then on ClaudeBar keeps it fresh on its own — the same auto-refresh as path 1. Good if you live in the terminal and would rather not do a separate in-app sign-in. ClaudeBar's own item (path 1) takes precedence when both exist.
+1. **In-app sign-in (recommended — no terminal needed).** Settings → **Sign in to Claude…** opens a standard OAuth Authorization Code + PKCE flow in your browser. Approve it and the browser hands the code straight back to the app; there is nothing to copy. ClaudeBar stores the result in its **own** Keychain item (`ClaudeBar-credentials`) and renews it from the stored refresh token, writing the rotated token back each time.
 
-<details>
-<summary><b>3. Manual paste (legacy fallback)</b></summary>
+2. **Keychain token (for terminal users).** The **Use Claude Code (terminal) token** row reads the Claude Code CLI's own Keychain item (`Claude Code-credentials`). That item only exists once you've run `claude` and logged in at least once. ClaudeBar reads it but never refreshes it — rotating it would invalidate it under the running CLI — so it prefers its own credential whenever both exist, and treats the CLI's as a fallback.
 
-Copy the token by hand and click **Paste usage token…**:
+**How the sign-in comes back.** ClaudeBar asks a loopback address to be the OAuth redirect, so a socket on `127.0.0.1` catches the code the moment your browser is redirected. It's bound to loopback only (never reachable from the network), the port is assigned by the kernel, it serves the one request, and it closes on success, on cancel, or after five minutes — whichever comes first. While you're not signing in, the app has no listening socket at all. This is the approach [RFC 8252](https://datatracker.ietf.org/doc/html/rfc8252) recommends for native apps, and what `gh`, `gcloud` and `aws sso` do. A code intercepted by another local process is useless without the PKCE verifier, which never leaves the app. If no port can be bound, the flow falls back to the hosted page and a **Paste sign-in code from clipboard** row.
 
-```sh
-security find-generic-password -s "Claude Code-credentials" -w | jq -r '.claudeAiOauth.accessToken' | pbcopy
-```
+**When a login stops working.** Refresh tokens do occasionally get invalidated server-side, so the settings panel reflects three states rather than pretending it can't happen:
 
-This one does **not** auto-refresh — when the token rotates the dropdown shows "usage token expired" and you re-paste. Superseded by paths 1 and 2, kept for flexibility.
+| State | What you see |
+|---|---|
+| Working | `Connected — usage updates automatically` · **Sign out of Claude** |
+| Expired | `Sign-in expired` · **Reconnect…** |
+| Can't renew yet | `Can't renew the saved login right now` · **Reconnect…** |
 
-</details>
+A rejected refresh token is treated as final: ClaudeBar stops asking the token endpoint and waits for you to reconnect. Retrying a dead token on the poll interval is what earns a 429, and that 429 then blocks renewals for hours — so the quiet failure is deliberate.
 
-> [!NOTE]
-> **Why both 1 and 2 exist:** the `Claude Code-credentials` Keychain item is only refreshed while the CLI is *running*, so desktop-only use let its access token expire (the original staleness bug). ClaudeBar now refreshes whichever item it's using via the OAuth refresh token, so neither path goes stale — path 1 just removes the one-time CLI login too.
+**Sign out** forgets ClaudeBar's own Keychain item so you can connect a different account. It also turns off the Claude Code token opt-in, since otherwise the next poll would reconnect using the CLI's credential and look like signing out had failed. It never deletes the CLI's item, and it's local only — Anthropic keeps the grant, so this stops using the login here rather than revoking it.
 
 ## Build & run
 
@@ -150,20 +154,17 @@ swift build   # so the Sparkle tools exist under .build/artifacts
 
 This stores the **private** key in your login Keychain and prints the **public** key. Paste the public key into `Resources/Info.plist` as `SUPublicEDKey`. Back it up off-machine (`generate_keys -x sparkle_private_key.pem`) — losing the private key means no future build can be delivered as an update.
 
-**Per release:**
+**Per release:** see **[RELEASING.md](RELEASING.md)** for the full flow — version bump, notarized DMG, feed regeneration, and the GitHub release, in the order that keeps the tag and the feed consistent. Two things worth knowing here:
 
-1. Bump the version in `Resources/Info.plist` (`CFBundleShortVersionString` + `CFBundleVersion`) and the launch log line in `Sources/ClaudeBar/ClaudeBarApp.swift`. `CFBundleVersion` **must strictly increase** — Sparkle compares it to decide whether an update exists.
-2. `CODESIGN_IDENTITY="Developer ID Application: …" make dist` → notarized `build/ClaudeBar.dmg`.
-3. Stage it for the feed: `cp build/ClaudeBar.dmg appcast-archives/ClaudeBar-<version>.dmg` (keeping past DMGs lets Sparkle build delta updates).
-4. Publish the DMG to the GitHub release it's downloaded from (the `appcast` tag keeps the download URL stable across versions): `gh release upload appcast appcast-archives/ClaudeBar-<version>.dmg`.
-5. `make appcast` — signs each archive with the Keychain key and regenerates `appcast.xml`.
-6. `git add appcast.xml && git commit && git push` — the feed goes live at the `SUFeedURL`.
+- `CFBundleVersion` **must strictly increase** every release; it's the value Sparkle compares to decide an update exists.
+- Each version's DMG lives on its own `vX.Y.Z` GitHub release, and `make appcast` rewrites every enclosure URL to that per-version asset. Past DMGs are kept in `appcast-archives/` so the feed can still list older versions — not for delta updates, which aren't used (`--maximum-deltas 0`; pointless for a ~2 MB app).
 
 ## Notes
 
 - **Launch at login**: toggle in the Settings popover (SMAppService). Flip it from the installed copy (`make install`), so the login item points at `~/Applications/ClaudeBar.app` rather than a build directory.
 - Threshold testing: `defaults write com.nerlichman.claudebar debugThresholds -array 1` makes the next evaluation fire at any usage level; `defaults delete com.nerlichman.claudebar debugThresholds` restores 75/90.
-- Cost figures use current Claude API per-MTok prices (cache reads at 0.1×, cache writes at 1.25×/2×) — they show what your usage *would* cost at API rates, which is informational if you're on a subscription plan.
+- **Troubleshooting**: the log is at `~/Library/Logs/ClaudeBar/claudebar.log` (`make logs` tails it). Sign-in, token refresh, and rate-limit decisions all leave a line there, which is the fastest way to see why usage stopped updating.
+- Cost figures use Claude API per-MTok prices (cache reads at 0.1×, cache writes at 1.25×/2×) — they show what your usage *would* cost at API rates, which is informational if you're on a subscription plan. The prices live in a hand-maintained table (`Sources/ClaudeBar/Usage/CostModel.swift`), matched by model-family prefix so point releases resolve without an edit; an unrecognized model falls back to the most expensive tier and the figure is marked approximate. They need updating when Anthropic changes pricing.
 - **Rewound sessions.** Rewinding a conversation ("rewind to here", or editing an earlier message) doesn't truncate the transcript — Claude Code writes a *new* session file seeded with a copy of the history, keeping each message's original id. A conversation rewound eight times is nine files holding almost the same requests, so counting them per-file bills the same API call up to nine times (measured here: 32% inflation on a week, 2.4× all-time). ClaudeBar counts each request once and reports it under the newest snapshot — the conversation you're still in — so the abandoned ones drop off the list instead of showing slices of a total.
   Requests you actually rewound away were still billed, so they roll up into that same row and appear as a separate `Rewound` line when non-zero (rare: 7 of 191 sessions here, $5.81 total). That line is the one figure Claude's own per-session view can't show, since the session that billed it no longer exists there — expect a small difference there and nowhere else.
 
