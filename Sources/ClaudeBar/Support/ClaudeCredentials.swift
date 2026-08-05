@@ -388,8 +388,15 @@ actor ClaudeTokenProvider {
         ].compactMap { $0 }
         guard !candidates.isEmpty else { return nil }
 
-        // Freshest still-valid credential (read-only, so the CLI token counts).
-        let freshestValid = candidates.filter { Self.isFresh($0) }.max(by: Self.byExpiry)
+        // Freshest still-valid credential, preferring our own item over the CLI's.
+        // Both are readable, but only ours is refreshable — and the CLI rotates
+        // its own credential from under us whenever it runs, which can retire the
+        // access token we cached before its stated expiry. Handing out a token we
+        // can't renew turns a routine renewal into an unrecoverable 401, so the
+        // CLI's token is a fallback for when we have none of our own, not a peer.
+        let valid = candidates.filter { Self.isFresh($0) }
+        let freshestValid = valid.filter { $0.service == ClaudeCredentials.ownService }
+            .max(by: Self.byExpiry) ?? valid.max(by: Self.byExpiry)
         if !forceRefresh, let valid = freshestValid {
             cached = valid
             return valid.accessToken
