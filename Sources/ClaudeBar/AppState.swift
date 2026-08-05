@@ -302,6 +302,15 @@ final class AppState {
             Log.info("usage: source=api five_hour=\(five) seven_day=\(seven) per_model=[\(perModel)]")
             notifier.evaluate(usage: usage, sessions: sessions)
         case .failure(.unauthorized):
+            if ClaudeCredentials.isRefreshTokenDead() {
+                // Nothing to retry: the server has forgotten the refresh token and
+                // only a new sign-in can mint another. Say so and stop polling,
+                // rather than rediscovering it every few minutes.
+                usageTokenState = .expired
+                degradedReason = "Sign in to Claude again — Claude no longer recognizes the saved login"
+                setNextFetch(after: Self.idlePollInterval)
+                return
+            }
             if ClaudeCredentials.isTokenEndpointCoolingDown() {
                 // Can't renew until the penalty clears — park the poll until then.
                 let remaining = ClaudeCredentials.tokenCooldownRemaining()

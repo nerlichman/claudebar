@@ -163,6 +163,29 @@ enum ClaudeCredentials {
         UserDefaults.standard.removeObject(forKey: tokenCooldownCountKey)
     }
 
+    // MARK: - Dead refresh token
+
+    /// `invalid_grant` on a refresh means the server has forgotten the token —
+    /// permanently. Retrying can only ever fail again, and retrying on the poll
+    /// interval is what earns the 429 that then locks us out for hours (seen in
+    /// the wild: 99 rejected refreshes over 11 hours, ending in a rate limit).
+    /// So we record it and stop asking until a sign-in mints a new grant.
+    private static let refreshRejectedKey = "refreshTokenRejected"
+
+    static func isRefreshTokenDead() -> Bool {
+        UserDefaults.standard.bool(forKey: refreshRejectedKey)
+    }
+
+    private static func noteRefreshTokenRejected() {
+        guard !isRefreshTokenDead() else { return }
+        UserDefaults.standard.set(true, forKey: refreshRejectedKey)
+        Log.error("oauth token: refresh token rejected — no further refreshes until re-sign-in")
+    }
+
+    static func clearRefreshTokenRejected() {
+        UserDefaults.standard.removeObject(forKey: refreshRejectedKey)
+    }
+
     // MARK: - OAuth refresh
 
     /// Default subscription scopes, sent on refresh exactly as Claude Code does.
@@ -236,10 +259,14 @@ enum ClaudeCredentials {
             // sign-in (authorization_code) getting throttled shouldn't.
             if http.statusCode == 429 {
                 noteTokenEndpointRateLimited(escalate: body["grant_type"] == "refresh_token")
+            } else if body["grant_type"] == "refresh_token", errorBody.contains("invalid_grant") {
+                noteRefreshTokenRejected()
             }
             return nil
         }
         clearTokenEndpointCooldown()
+        // Any success means we hold a working grant again.
+        clearRefreshTokenRejected()
         guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let access = json["access_token"] as? String, !access.isEmpty
         else {
@@ -368,8 +395,11 @@ actor ClaudeTokenProvider {
             return valid.accessToken
         }
 
-        // Refresh our OWN item only, and not during a 429 cooldown.
+        // Refresh our OWN item only, never during a 429 cooldown, and never once
+        // the server has disowned the refresh token — that one can't recover
+        // without a sign-in, and asking again is what triggers the rate limit.
         if !ClaudeCredentials.isTokenEndpointCoolingDown(),
+           !ClaudeCredentials.isRefreshTokenDead(),
            let own = candidates
                .filter({ $0.service == ClaudeCredentials.ownService })
                .max(by: Self.byExpiry),
