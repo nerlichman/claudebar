@@ -21,31 +21,58 @@ enum ClaudeOAuth {
     private static let scopes = "org:create_api_key user:profile user:inference"
 
     /// One in-flight login attempt. `verifier` and `state` must survive from
-    /// building the URL until the user pastes the code back.
+    /// building the URL until the code comes back — over the loopback listener if
+    /// we got one, otherwise pasted by hand.
     struct PendingLogin {
         let verifier: String
         let state: String
         let url: URL
+        /// Echoed back on the token exchange, so it has to match whichever
+        /// redirect the authorize request actually asked for.
+        let redirectURI: String
+        let server: LoopbackCallbackServer?
     }
 
-    /// Builds the authorize URL plus the PKCE secrets to hold onto.
+    /// Builds the authorize URL plus the PKCE secrets to hold onto. Prefers a
+    /// loopback redirect so the browser hands the code straight back; falls back
+    /// to the hosted page the user copies from if no port can be bound.
     static func begin() -> PendingLogin {
         let verifier = randomURLSafe(64)
         let challenge = codeChallenge(for: verifier)
         let state = randomURLSafe(32)
+
+        let server = try? LoopbackCallbackServer()
+        if server == nil {
+            Log.error("oauth login: no loopback port — falling back to paste flow")
+        }
+        let redirect = server.map { "http://localhost:\($0.port)/callback" } ?? redirectURI
 
         var components = URLComponents(string: authorizeURL)!
         components.queryItems = [
             URLQueryItem(name: "code", value: "true"),
             URLQueryItem(name: "client_id", value: ClaudeCredentials.clientID),
             URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "redirect_uri", value: redirect),
             URLQueryItem(name: "scope", value: scopes),
             URLQueryItem(name: "code_challenge", value: challenge),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
             URLQueryItem(name: "state", value: state),
         ]
-        return PendingLogin(verifier: verifier, state: state, url: components.url!)
+        return PendingLogin(
+            verifier: verifier, state: state, url: components.url!,
+            redirectURI: redirect, server: server
+        )
+    }
+
+    /// Waits for the browser to come back to the loopback listener, then finishes
+    /// the exchange. Returns nil when there is no listener to wait on.
+    static func completeViaLoopback(
+        login: PendingLogin
+    ) async -> Result<ClaudeCredentials.Credentials, ExchangeError>? {
+        guard let server = login.server else { return nil }
+        guard let callback = try? await server.waitForCallback() else { return nil }
+        guard callback.state == login.state else { return .failure(.stateMismatch) }
+        return await exchange(code: callback.code, state: callback.state, login: login)
     }
 
     enum ExchangeError: Error {
@@ -73,13 +100,19 @@ enum ClaudeOAuth {
         let state = parts.count > 1 ? parts[1] : login.state
         guard !code.isEmpty else { return .failure(.badCodeFormat) }
         guard state == login.state else { return .failure(.stateMismatch) }
+        return await exchange(code: code, state: state, login: login)
+    }
 
+    /// Redeems an authorization code, however it arrived, and stores the result.
+    private static func exchange(
+        code: String, state: String, login: PendingLogin
+    ) async -> Result<ClaudeCredentials.Credentials, ExchangeError> {
         let body: [String: String] = [
             "grant_type": "authorization_code",
             "code": code,
             "state": state,
             "client_id": ClaudeCredentials.clientID,
-            "redirect_uri": redirectURI,
+            "redirect_uri": login.redirectURI,
             "code_verifier": login.verifier,
         ]
         guard let token = await ClaudeCredentials.postToken(body),

@@ -32,6 +32,11 @@ if [ ! -f Resources/AppIcon.icns ]; then
   iconutil -c icns build/AppIcon.iconset -o Resources/AppIcon.icns
 fi
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# Browser-renderable copy of the icon for the OAuth callback page, which is
+# served over plain http and so can't fetch anything remote. Derived from the
+# .icns rather than committed alongside it, so the two can't drift apart.
+sips -s format png -Z 128 Resources/AppIcon.icns \
+  --out "$APP/Contents/Resources/AppIcon-128.png" >/dev/null
 # Bundle the Claude Code hook scripts so the app can install them itself
 # (gear menu) — keeps a shared .dmg fully functional without the repo.
 cp scripts/statusline-hook.sh scripts/claudebar-hook.sh "$APP/Contents/Resources/"

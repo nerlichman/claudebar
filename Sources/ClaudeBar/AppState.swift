@@ -33,6 +33,7 @@ final class AppState {
     /// code back from the browser — drives the settings UI.
     var awaitingSignInCode = false
     @ObservationIgnored private var pendingLogin: ClaudeOAuth.PendingLogin?
+    @ObservationIgnored private var loopbackWait: Task<Void, Never>?
     /// Prevents overlapping sign-in completions (the paste row stays open).
     @ObservationIgnored private var isCompletingSignIn = false
     /// Whether to read a token from the Keychain for usage polling. Enabled by
@@ -132,12 +133,26 @@ final class AppState {
     /// resulting token is stored in ClaudeBar's own Keychain item.
     func beginSignIn() {
         let login = ClaudeOAuth.begin()
+        pendingLogin?.server?.stop()
         pendingLogin = login
         awaitingSignInCode = true
         useKeychainToken = true
-        degradedReason = "Log in via the browser, copy the code it shows, then click \u{201C}Paste sign-in code\u{201D}"
+        let automatic = login.server != nil
+        degradedReason = automatic
+            ? "Approve the sign-in in your browser — it comes straight back here"
+            : "Log in via the browser, copy the code it shows, then click \u{201C}Paste sign-in code\u{201D}"
         NSWorkspace.shared.open(login.url)
-        Log.info("oauth login: opened authorize URL, awaiting code")
+        Log.info("oauth login: opened authorize URL (\(automatic ? "loopback :\(login.server!.port)" : "paste"))")
+
+        // The paste row stays available throughout: if the browser never comes
+        // back, or the listener dies, the manual path is still there.
+        guard automatic else { return }
+        loopbackWait?.cancel()
+        loopbackWait = Task { [weak self] in
+            guard let result = await ClaudeOAuth.completeViaLoopback(login: login) else { return }
+            guard let self, self.pendingLogin?.state == login.state else { return }
+            self.finishSignIn(result, source: "loopback")
+        }
     }
 
     /// Finishes sign-in with the `code#state` the user copied from the browser.
@@ -151,28 +166,40 @@ final class AppState {
         degradedReason = "Checking sign-in code…"
         Task {
             defer { isCompletingSignIn = false }
-            switch await ClaudeOAuth.complete(pasted: pasted, login: login) {
-            case .success(let creds):
-                await ClaudeTokenProvider.shared.adopt(creds)
-                pendingLogin = nil
-                awaitingSignInCode = false
-                degradedReason = nil
-                consecutiveKeychainAuthFailures = 0
-                Log.info("oauth login: success")
-                resumeUsagePollingNow()
-            case .failure(let error):
-                // A throttled/down endpoint shows up as a 429, not a bad code.
-                if ClaudeCredentials.isTokenEndpointCoolingDown() {
-                    degradedReason = "Claude's sign-in service is rate-limited or down right now — try again later"
-                } else {
-                    degradedReason = error.userMessage
-                }
-                Log.error("oauth login: \(error.userMessage)")
+            finishSignIn(await ClaudeOAuth.complete(pasted: pasted, login: login), source: "paste")
+        }
+    }
+
+    /// Shared tail of both sign-in paths — the loopback callback and the pasted
+    /// code end in exactly the same place.
+    private func finishSignIn(
+        _ result: Result<ClaudeCredentials.Credentials, ClaudeOAuth.ExchangeError>, source: String
+    ) {
+        switch result {
+        case .success(let creds):
+            Task { await ClaudeTokenProvider.shared.adopt(creds) }
+            pendingLogin?.server?.stop()
+            pendingLogin = nil
+            awaitingSignInCode = false
+            degradedReason = nil
+            consecutiveKeychainAuthFailures = 0
+            Log.info("oauth login: success (\(source))")
+            resumeUsagePollingNow()
+        case .failure(let error):
+            // A throttled/down endpoint shows up as a 429, not a bad code.
+            if ClaudeCredentials.isTokenEndpointCoolingDown() {
+                degradedReason = "Claude's sign-in service is rate-limited or down right now — try again later"
+            } else {
+                degradedReason = error.userMessage
             }
+            Log.error("oauth login: \(error.userMessage) (\(source))")
         }
     }
 
     func cancelSignIn() {
+        loopbackWait?.cancel()
+        loopbackWait = nil
+        pendingLogin?.server?.stop()
         pendingLogin = nil
         awaitingSignInCode = false
         degradedReason = nil
