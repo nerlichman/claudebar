@@ -196,6 +196,19 @@ final class AppState {
         }
     }
 
+    /// Forgets the stored login so a different Claude account can be used. Also
+    /// drops the Claude Code token opt-in: leaving it on would let the very next
+    /// poll reconnect with the CLI's credential and look like signing out failed.
+    func signOut() {
+        cancelSignIn()
+        ClaudeCredentials.deleteOwnItem()
+        Task { await ClaudeTokenProvider.shared.forget() }
+        useKeychainToken = false
+        usageTokenState = .none
+        consecutiveKeychainAuthFailures = 0
+        degradedReason = nil
+    }
+
     func cancelSignIn() {
         loopbackWait?.cancel()
         loopbackWait = nil

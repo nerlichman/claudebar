@@ -288,6 +288,16 @@ enum ClaudeCredentials {
     /// Persists credentials to their item. The rotated refresh token MUST land
     /// here — the server already invalidated the previous one, so a lost write
     /// leaves a dead credential on next launch. Hence the retry-once on failure.
+    /// Forgets our own Keychain item. Local only — Anthropic keeps the grant, so
+    /// this is "stop using this login here", not a server-side revoke. The CLI's
+    /// item is never touched: it isn't ours to delete.
+    static func deleteOwnItem() {
+        _ = runSecurity(["delete-generic-password", "-s", ownService])
+        clearRefreshTokenRejected()
+        clearTokenEndpointCooldown()
+        Log.info("oauth: signed out (removed \(ownService))")
+    }
+
     private static func writeBack(_ creds: Credentials) {
         guard let data = try? JSONSerialization.data(withJSONObject: creds.root),
               let json = String(data: data, encoding: .utf8)
@@ -367,6 +377,10 @@ actor ClaudeTokenProvider {
     /// Adopt credentials just minted by the in-app login so the next poll uses
     /// them without waiting on a Keychain round-trip.
     func adopt(_ creds: ClaudeCredentials.Credentials) { cached = creds }
+
+    /// Drops the cached credential so the next poll re-reads the Keychain rather
+    /// than serving a token we've just signed out of.
+    func forget() { cached = nil }
 
     /// A currently-valid access token, refreshing via the stored refresh token
     /// when the freshest known credential is expired or nearly so. Returns nil
