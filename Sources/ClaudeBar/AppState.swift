@@ -7,7 +7,10 @@ final class AppState {
     static let shared = AppState()
 
     enum UsageTokenState: Equatable {
-        case none, active, expired
+        /// `rateLimited` is a working login we temporarily can't renew — distinct
+        /// from `active` so the UI can offer a sign-in as the way out, and from
+        /// `expired` so it doesn't claim the login is gone when it isn't.
+        case none, active, expired, rateLimited
     }
 
     var sessions: [Session] = []
@@ -314,7 +317,7 @@ final class AppState {
             if ClaudeCredentials.isTokenEndpointCoolingDown() {
                 // Can't renew until the penalty clears — park the poll until then.
                 let remaining = ClaudeCredentials.tokenCooldownRemaining()
-                usageTokenState = .active
+                usageTokenState = .rateLimited
                 degradedReason = "Can't refresh the saved login yet (endpoint rate-limited) — auto-retry in \(Int(remaining / 60) + 1)m, or sign in again"
                 setNextFetch(after: remaining + 5)
                 Log.error("usage api: token endpoint cooling down, deferring \(Int(remaining))s")

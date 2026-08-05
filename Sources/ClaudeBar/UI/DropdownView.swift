@@ -149,9 +149,17 @@ struct DropdownView: View {
                 settingsRow("Cancel sign-in") { appState.cancelSignIn() }
             } else if appState.usageTokenState == .active {
                 settingsCaption("Connected — usage updates automatically")
+                // Always reachable: a login can stop working without us knowing
+                // yet, and switching accounts is a legitimate reason to redo it.
+                settingsRow("Sign in to Claude again…") { appState.beginSignIn() }
             } else {
-                if appState.usageTokenState == .expired {
+                switch appState.usageTokenState {
+                case .expired:
                     settingsCaption("Sign-in expired — sign in again", tint: .orange)
+                case .rateLimited:
+                    settingsCaption("Can't renew the saved login right now — signing in again fixes it", tint: .orange)
+                default:
+                    EmptyView()
                 }
                 settingsRow("Sign in to Claude…") { appState.beginSignIn() }
                 settingsRow("Use Claude Code (terminal) token") { appState.useClaudeCodeToken() }
