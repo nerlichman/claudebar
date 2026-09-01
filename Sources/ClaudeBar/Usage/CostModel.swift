@@ -1,24 +1,37 @@
 import Foundation
 
 /// Pricing per million tokens, verified against the Claude API docs on
-/// 2026-08-11. Matched on the family name appearing anywhere in the model id,
+/// 2026-08-14. Matched on the family name appearing anywhere in the model id,
 /// not as a prefix: transcripts also carry bare aliases (`sonnet`) and
 /// platform-prefixed ids (`anthropic.claude-opus-5`), both of which a
 /// `claude-`-anchored prefix match misses. Point releases like
 /// `claude-sonnet-5` resolve without a table edit; an unknown model falls
 /// back to `table[0]` (the most expensive tier) and is flagged approximate.
 /// Family entries carry current pricing, so a future release inherits it; a
-/// version-prefixed entry above its family is a legacy exception for an older
-/// tier whose price never changed.
+/// version-prefixed entry above its family is an exception for a release whose
+/// rates differ from the family default.
 enum CostModel {
     struct Pricing {
         let inputPerMTok: Double
         let outputPerMTok: Double
+        /// Cache reads bill at this fraction of the base input price. Every
+        /// model uses 0.1 except Fable/Mythos 5.1, which read at 0.025 —
+        /// $0.25/MTok against the same $10 base as Fable 5's $1/MTok.
+        var cacheReadMultiplier: Double = 0.1
     }
 
+    /// Order matters: a version is a substring of its own point releases, so
+    /// `fable-5` also matches `claude-fable-5-1`. More specific ids must come
+    /// first, and each family's trailing entry holds the current rates for
+    /// bare aliases (`fable`) and releases that don't exist yet.
     private static let table: [(family: String, pricing: Pricing)] = [
-        ("fable", Pricing(inputPerMTok: 10, outputPerMTok: 50)),
-        ("mythos", Pricing(inputPerMTok: 10, outputPerMTok: 50)),
+        ("fable-5-1", Pricing(inputPerMTok: 10, outputPerMTok: 50, cacheReadMultiplier: 0.025)),
+        ("mythos-5-1", Pricing(inputPerMTok: 10, outputPerMTok: 50, cacheReadMultiplier: 0.025)),
+        // Fable/Mythos 5 read at the standard 0.1x, 4x their 5.1 successors.
+        ("fable-5", Pricing(inputPerMTok: 10, outputPerMTok: 50)),
+        ("mythos-5", Pricing(inputPerMTok: 10, outputPerMTok: 50)),
+        ("fable", Pricing(inputPerMTok: 10, outputPerMTok: 50, cacheReadMultiplier: 0.025)),
+        ("mythos", Pricing(inputPerMTok: 10, outputPerMTok: 50, cacheReadMultiplier: 0.025)),
         ("opus", Pricing(inputPerMTok: 5, outputPerMTok: 25)),
         // Sonnet 4.6 and 4.5 stay at $3/$15; must precede the family entry.
         ("sonnet-4", Pricing(inputPerMTok: 3, outputPerMTok: 15)),
@@ -52,7 +65,7 @@ enum CostModel {
         let perTok = 1.0 / 1_000_000
         let usd = Double(event.inputTokens) * p.inputPerMTok * perTok
             + Double(event.outputTokens) * p.outputPerMTok * perTok
-            + Double(event.cacheReadTokens) * p.inputPerMTok * 0.1 * perTok
+            + Double(event.cacheReadTokens) * p.inputPerMTok * p.cacheReadMultiplier * perTok
             + Double(event.cacheCreation5mTokens) * p.inputPerMTok * 1.25 * perTok
             + Double(event.cacheCreation1hTokens) * p.inputPerMTok * 2.0 * perTok
             + Double(event.webSearchRequests) * webSearchPerRequest
