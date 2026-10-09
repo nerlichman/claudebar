@@ -54,6 +54,7 @@ final class AppState {
     @ObservationIgnored private let usageReader = StatuslineUsageReader()
     @ObservationIgnored private let oauthFetcher = OAuthUsageFetcher()
     @ObservationIgnored private var oauthTask: Task<Void, Never>?
+    @ObservationIgnored private var pricingTask: Task<Void, Never>?
     @ObservationIgnored private let notifier = NotificationManager()
     @ObservationIgnored private let tailParser = TranscriptTailParser()
     @ObservationIgnored private let weekStatsCache = TranscriptStatsCache()
@@ -97,6 +98,7 @@ final class AppState {
         // opted in — a token read from the Keychain. No Keychain touch here
         // unless that opt-in is on.
         startOAuthLoop()
+        startPricingLoop()
 
         fastTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshAll() }
@@ -117,6 +119,27 @@ final class AppState {
                 self?.refreshAll()
             }
         }
+    }
+
+    /// Checks hourly; the registry itself only refetches every six hours, and
+    /// a failed fetch is simply retried on the next check.
+    private func startPricingLoop() {
+        pricingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                if await PricingRegistry.shared.refreshIfStale() {
+                    self?.repriceAll()
+                }
+                try? await Task.sleep(for: .seconds(3600))
+            }
+        }
+    }
+
+    /// Recomputes every cost from the transcripts at the new prices.
+    private func repriceAll() {
+        resetDayAggregation()
+        weekStatsCache.reset()
+        refreshDayStats()
+        refreshWeekStats(force: true)
     }
 
     func refreshAll() {

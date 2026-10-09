@@ -50,7 +50,7 @@ Three things: your rate-limit windows, every running session, and threshold noti
 
 ## How it works: local-first
 
-Everything except the usage windows comes from local files Claude Code already writes, with no credentials and no network. The usage windows optionally call one Anthropic endpoint with a token you authorize (see [Authentication and usage data](#authentication-and-usage-data)).
+Everything except the usage windows and model prices comes from local files Claude Code already writes, with no credentials. The usage windows optionally call one Anthropic endpoint with a token you authorize (see [Authentication and usage data](#authentication-and-usage-data)). Model prices come from a public registry (see [How cost is calculated](#how-cost-is-calculated)).
 
 | Data | Source |
 |---|---|
@@ -64,7 +64,7 @@ Everything except the usage windows comes from local files Claude Code already w
 | Which session a request counts toward | Rewinding a chat writes a new transcript that copies the history verbatim, so the same request exists in more than one file. Each is counted once and attributed to the newest snapshot of that conversation, described in [How cost is calculated](#how-cost-is-calculated) |
 
 > [!IMPORTANT]
-> The only network call is the usage poll, plus OAuth sign-in and refresh. ClaudeBar never writes to or deletes anything inside `~/.claude`, with one exception: the statusline and hooks configuration in `~/.claude/settings.json`, added with your consent.
+> The only network calls are the usage poll, OAuth sign-in and refresh, and an anonymous price-registry download every six hours. ClaudeBar never writes to or deletes anything inside `~/.claude`, with one exception: the statusline and hooks configuration in `~/.claude/settings.json`, added with your consent.
 
 The last good API reading is cached across relaunches. Two independent backoffs guard the two endpoints, both surfaced in the dropdown:
 
@@ -173,9 +173,9 @@ Two settings need explaining, and one log file answers most questions:
 
 ## How cost is calculated
 
-Cost figures use Claude API per-MTok prices (cache reads at 0.1×, cache writes at 1.25× or 2×). They show what your usage *would* cost at API rates, which is informational if you're on a subscription plan.
+Cost figures use Claude API per-MTok prices (cache reads at 0.1× on most models, cache writes at 1.25× or 2×, fast mode at 2×). Models priced by prompt length, such as Haiku 5.5 above 100,000 tokens, are costed per request at the tier that request falls in. They show what your usage *would* cost at API rates, which is informational if you're on a subscription plan.
 
-The prices live in a hand-maintained table (`Sources/ClaudeBar/Usage/CostModel.swift`), matched by model-family prefix so point releases resolve without an edit. An unrecognized model falls back to the most expensive tier and the figure is marked approximate. The table needs updating whenever Anthropic changes pricing.
+Prices come from [RubyLLM's model registry](https://rubyllm.com/models/), which is rebuilt every six hours from models.dev and Anthropic's API. ClaudeBar downloads it every six hours and saves a copy to `~/Library/Application Support/ClaudeBar/pricing.json`, so new models and price changes arrive without an app update. Models the registry doesn't list yet, bare aliases like `opus`, and retired models use a built-in table (`Sources/ClaudeBar/Usage/CostModel.swift`) matched on the model family, so point releases resolve without an edit. Fast mode and 1-hour cache writes always use the built-in table's rates. A model neither source recognizes falls back to the most expensive tier and the figure is marked approximate.
 
 **Rewound sessions.** Rewinding a conversation (“rewind to here”, or editing an earlier message) doesn't truncate the transcript. Claude Code writes a *new* session file seeded with a copy of the history, keeping each message's original id. A conversation rewound eight times becomes nine files holding nearly identical requests, so counting them per-file bills the same API call up to nine times: measured on one machine, 32% inflation over a week and 2.4× all-time. ClaudeBar counts each request once and reports it under the newest snapshot, the conversation you're still in, so the abandoned ones no longer appear in the list instead of showing slices of a total.
 

@@ -10,6 +10,7 @@ struct UsageEvent {
     let cacheCreation5mTokens: Int
     let cacheCreation1hTokens: Int
     let webSearchRequests: Int
+    let isFastMode: Bool
 }
 
 /// Incremental parser for transcript .jsonl files. Tracks a byte offset per
@@ -183,7 +184,8 @@ final class TranscriptTailParser {
             cacheReadTokens: intValue(usage["cache_read_input_tokens"]),
             cacheCreation5mTokens: cache5m,
             cacheCreation1hTokens: cache1h,
-            webSearchRequests: webSearchRequests
+            webSearchRequests: webSearchRequests,
+            isFastMode: usage["speed"] as? String == "fast"
         )
     }
 }

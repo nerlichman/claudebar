@@ -91,6 +91,11 @@ final class TranscriptStatsCache {
         return total
     }
 
+    /// Drops every cached bucket; their costs were computed at the old prices.
+    func reset() {
+        entries = [:]
+    }
+
     /// Parses a whole transcript once, bucketing its billed requests by calendar
     /// day. Timestamp-less events (rare) fall under `fallbackDay` — the file's
     /// mtime day, so the bucketing is stable across re-parses.
