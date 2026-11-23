@@ -207,7 +207,7 @@ struct DropdownView: View {
     }
 
     /// The login item points at whichever bundle is running, so toggle this
-    /// from the installed copy (~/Applications), not a build-dir run.
+    /// from the installed copy (/Applications), not a build-dir run.
     private var launchAtLogin: Binding<Bool> {
         Binding(
             get: { launchAtLoginEnabled },

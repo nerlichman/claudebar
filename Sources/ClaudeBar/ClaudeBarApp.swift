@@ -16,7 +16,7 @@ struct ClaudeBarApp: App {
     /// If another ClaudeBar is already running, hand off to it and exit before
     /// any status item is created — otherwise the menu bar shows two icons.
     /// Matching on bundle identifier also catches a launch from a different
-    /// path (e.g. build/ vs ~/Applications), which LaunchServices' own
+    /// path (e.g. build/ vs /Applications), which LaunchServices' own
     /// single-instance guard does not coalesce. Runs in init(), before the
     /// scene is built, so the duplicate exits cleanly.
     private static func enforceSingleInstance() {

@@ -37,10 +37,13 @@ run: app stop
 	sleep 1
 	open $(APP)
 
+# macOS App Management blocks changing files inside an installed app without
+# that permission, but moving the whole bundle to the Trash is allowed.
 install: app stop
 	sleep 1
-	ditto $(APP) "$(HOME)/Applications/ClaudeBar.app"
-	open "$(HOME)/Applications/ClaudeBar.app"
+	if [ -e /Applications/ClaudeBar.app ]; then trash /Applications/ClaudeBar.app; fi
+	ditto $(APP) /Applications/ClaudeBar.app
+	open /Applications/ClaudeBar.app
 
 stop:
 	-pkill -x ClaudeBar 2>/dev/null || true

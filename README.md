@@ -113,7 +113,7 @@ A rejected refresh token is treated as final: ClaudeBar stops asking the token e
 | Command | What it does |
 |---|---|
 | `make run` | Build, bundle, sign, and launch from `build/` |
-| `make install` | Build and install to `~/Applications`, then launch |
+| `make install` | Build and install to `/Applications`, then launch |
 | `make dmg` | Build a shareable (unsigned) `build/ClaudeBar.dmg` |
 | `make dist` | Build a signed, notarized, stapled `build/ClaudeBar.dmg` for release |
 | `make appcast` | Regenerate the Sparkle update feed (`appcast.xml`) from `appcast-archives/` |
@@ -167,7 +167,7 @@ This stores the **private** key in your login Keychain and prints the **public**
 
 Two settings need explaining, and one log file answers most questions:
 
-- **Launch at login**: toggle in the Settings popover (SMAppService). Flip it from the installed copy (`make install`), so the login item points at `~/Applications/ClaudeBar.app` rather than a build directory.
+- **Launch at login**: toggle in the Settings popover (SMAppService). Flip it from the installed copy (`make install`), so the login item points at `/Applications/ClaudeBar.app` rather than a build directory.
 - **Threshold testing**: `defaults write com.nerlichman.claudebar debugThresholds -array 1` makes the next evaluation fire at any usage level; `defaults delete com.nerlichman.claudebar debugThresholds` restores 75/90.
 - **The log**: `~/Library/Logs/ClaudeBar/claudebar.log`, tailed by `make logs`. Sign-in, token refresh, and rate-limit decisions all write a line there, which is the fastest way to see why usage stopped updating.
 
