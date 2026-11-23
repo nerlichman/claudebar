@@ -3,6 +3,15 @@
     <channel>
         <title>ClaudeBar</title>
         <item>
+            <title>0.1.8</title>
+            <pubDate>Mon, 23 Nov 2026 19:44:08 -0300</pubDate>
+            <sparkle:version>9</sparkle:version>
+            <sparkle:shortVersionString>0.1.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/nerlichman/claudebar/releases/download/v0.1.8/ClaudeBar-0.1.8.dmg" length="2264639" type="application/octet-stream" sparkle:edSignature="5KtBmecnqPyNMHCN5EJaIynrpjHn29uiJyQmU4qy59+xxp0TSMRiVTJkAJB9pd1m9yB1GNykCvKjRNCRARZDDg=="/>
+        </item>
+        <item>
             <title>0.1.7</title>
             <pubDate>Fri, 09 Oct 2026 18:22:31 -0300</pubDate>
             <sparkle:version>8</sparkle:version>
@@ -19,15 +28,6 @@
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/nerlichman/claudebar/releases/download/v0.1.6/ClaudeBar-0.1.6.dmg" length="2264392" type="application/octet-stream" sparkle:edSignature="ZYiQ/4vDEQyo4dCoAIIipVxF5I8BvsoVJZf4Oy5ISGAxXzgJ+/SDV+mVxilCL0f06OoCy+wJ4T/ty1eMfVxPCQ=="/>
-        </item>
-        <item>
-            <title>0.1.5</title>
-            <pubDate>Wed, 05 Aug 2026 16:20:03 -0300</pubDate>
-            <sparkle:version>6</sparkle:version>
-            <sparkle:shortVersionString>0.1.5</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/nerlichman/claudebar/releases/download/v0.1.5/ClaudeBar-0.1.5.dmg" length="2264087" type="application/octet-stream" sparkle:edSignature="IWqCAKN3lZaqQxqpCVTfbX2Nr4MyV+uXhgGQ+dCFQuLPaZvdJDKvtZOXsjDhAYLEZeYznQgjLbfF6aFi+B7YDg=="/>
         </item>
     </channel>
 </rss>
